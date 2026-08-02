@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Stunning 3D, 8D Music Player with a Multi-band Equalizer and custom local playlists. Works on Windows, Android, and iOS.">
+    <title>Aether 3D & 8D Music Player</title>
+    
+    <!-- Google Fonts: Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- PWA Settings -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0a0a14">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Aether Player">
+    
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="bg-glow"></div>
+    
+    <div id="app-container">
+        <!-- Sidebar: Playlists & Uploads -->
+        <aside id="sidebar">
+            <div class="sidebar-header">
+                <i class="fa-solid fa-headphones-simple logo-icon"></i>
+                <h2>Aether</h2>
+            </div>
+            
+            <div class="section-title">
+                <h3>Playlists</h3>
+                <button id="btn-create-playlist" title="Create Playlist"><i class="fa-solid fa-plus"></i></button>
+            </div>
+            
+            <ul id="playlist-tabs">
+                <!-- Playlists dynamically loaded here -->
+            </ul>
+            
+            <div class="section-title margin-top">
+                <h3>Add Music</h3>
+            </div>
+            <div id="upload-zone">
+                <i class="fa-solid fa-cloud-arrow-up"></i>
+                <p>Drag & Drop or Click</p>
+                <input type="file" id="file-input" multiple accept="audio/*" style="display: none;">
+            </div>
+            
+            <div class="section-title margin-top">
+                <h3>Songs</h3>
+            </div>
+            <div id="playlist-songs-container">
+                <ul id="song-list">
+                    <!-- Songs in active playlist dynamically loaded here -->
+                </ul>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main id="main-content">
+            <!-- Center Panel: Album Art & Visualizer -->
+            <section id="player-view">
+                <div class="current-track-info">
+                    <h1 id="track-title">Select a Song</h1>
+                    <p id="track-artist">Aether Spatial Audio Engine</p>
+                    <span id="track-playlist-badge" class="badge">Demo Tracks</span>
+                </div>
+
+                <div class="art-container">
+                    <div id="visualizer-wrapper">
+                        <canvas id="visualizer-canvas"></canvas>
+                    </div>
+                    <div id="album-art">
+                        <div class="art-disc">
+                            <i class="fa-solid fa-compact-disc"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="playback-controls-wrapper">
+                    <!-- Progress Bar -->
+                    <div class="progress-container">
+                        <span id="time-current">0:00</span>
+                        <div id="progress-bar-bg">
+                            <div id="progress-bar-fill"></div>
+                            <div id="progress-bar-handle"></div>
+                        </div>
+                        <span id="time-duration">0:00</span>
+                    </div>
+
+                    <!-- Buttons -->
+                    <div class="player-controls">
+                        <button id="btn-shuffle" class="ctrl-btn" title="Shuffle"><i class="fa-solid fa-shuffle"></i></button>
+                        <button id="btn-prev" class="ctrl-btn" title="Previous"><i class="fa-solid fa-backward-step"></i></button>
+                        <button id="btn-play-pause" class="ctrl-btn play-btn" title="Play"><i class="fa-solid fa-play"></i></button>
+                        <button id="btn-next" class="ctrl-btn" title="Next"><i class="fa-solid fa-forward-step"></i></button>
+                        <button id="btn-repeat" class="ctrl-btn" title="Repeat"><i class="fa-solid fa-repeat"></i></button>
+                    </div>
+
+                    <div class="volume-container">
+                        <i class="fa-solid fa-volume-low"></i>
+                        <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.8">
+                        <i class="fa-solid fa-volume-high"></i>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Panel: Audio Effects (3D, 8D, EQ) -->
+            <section id="effects-view">
+                <!-- DJ Deck & FX Panel -->
+                <div class="effects-card">
+                    <div class="card-header">
+                        <div class="header-left">
+                            <i class="fa-solid fa-compact-disc icon-effect"></i>
+                            <h3>DJ Deck & FX Panel</h3>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="toggle-dj">
+                            <span class="slider-toggle"></span>
+                        </label>
+                    </div>
+                    <p class="card-desc">Control track speed, apply DJ sweeps, and trigger live sound effects.</p>
+                    
+                    <div id="dj-controls-content" class="dj-content-disabled">
+                        <div class="slider-group">
+                            <div class="slider-label">
+                                <span>Tempo / Speed</span>
+                                <span id="val-dj-speed">1.00x</span>
+                            </div>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <input type="range" id="slider-dj-speed" min="0.5" max="2.0" step="0.05" value="1.0" style="flex: 1;" disabled>
+                                <button id="btn-reset-dj-speed" class="ctrl-btn-mini" title="Reset Speed" disabled><i class="fa-solid fa-rotate-left"></i></button>
+                            </div>
+                        </div>
+
+                        <div class="slider-group">
+                            <div class="slider-label">
+                                <span>DJ Filter (LPF &larr; Bypass &rarr; HPF)</span>
+                                <span id="val-dj-filter">Bypass</span>
+                            </div>
+                            <input type="range" id="slider-dj-filter" min="-100" max="100" step="1" value="0" disabled>
+                        </div>
+
+                        <div class="dj-sfx-grid">
+                            <button class="dj-sfx-btn" id="btn-sfx-airhorn" disabled><i class="fa-solid fa-bullhorn"></i> Airhorn</button>
+                            <button class="dj-sfx-btn" id="btn-sfx-siren" disabled><i class="fa-solid fa-triangle-exclamation"></i> Siren</button>
+                            <button class="dj-sfx-btn" id="btn-sfx-scratch" disabled><i class="fa-solid fa-record-vinyl"></i> Scratch</button>
+                            <button class="dj-sfx-btn" id="btn-sfx-laser" disabled><i class="fa-solid fa-wand-magic-sparkles"></i> Laser</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 8D Orbit Effect Card -->
+                <div class="effects-card">
+                    <div class="card-header">
+                        <div class="header-left">
+                            <i class="fa-solid fa-rotate-right icon-effect"></i>
+                            <h3>8D Auto-Orbit Effect</h3>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="toggle-8d">
+                            <span class="slider-toggle"></span>
+                        </label>
+                    </div>
+                    <p class="card-desc">Automatically rotates the sound around your head in 3D space. Use headphones!</p>
+                    
+                    <div class="slider-group">
+                        <div class="slider-label">
+                            <span>Orbit Speed</span>
+                            <span id="val-orbit-speed">1.5Hz</span>
+                        </div>
+                        <input type="range" id="slider-orbit-speed" min="0.1" max="5" step="0.1" value="1.5">
+                    </div>
+
+                    <div class="slider-group">
+                        <div class="slider-label">
+                            <span>Orbit Radius (Width)</span>
+                            <span id="val-orbit-radius">80%</span>
+                        </div>
+                        <input type="range" id="slider-orbit-radius" min="10" max="100" step="5" value="80">
+                    </div>
+
+                    <div class="slider-group">
+                        <div class="slider-label">
+                            <span>Spatial Reverb</span>
+                            <span id="val-reverb">30%</span>
+                        </div>
+                        <input type="range" id="slider-reverb" min="0" max="100" step="5" value="30">
+                    </div>
+                </div>
+
+                <!-- 3D Spatial Audio Coordinates -->
+                <div class="effects-card">
+                    <div class="card-header">
+                        <div class="header-left">
+                            <i class="fa-solid fa-circle-nodes icon-effect"></i>
+                            <h3>3D Spatial Position</h3>
+                        </div>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <span class="coordinates-badge" id="coordinates-display">X: 0.0, Y: 0.0</span>
+                            <button id="btn-reset-spatial" class="ctrl-btn-mini" title="Reset Position"><i class="fa-solid fa-arrows-to-dot"></i></button>
+                        </div>
+                    </div>
+                    <p class="card-desc">Drag the source speaker node relative to the listener (center) to customize 3D space.</p>
+                    
+                    <div id="spatial-pad-container">
+                        <div class="direction-label label-front">FRONT</div>
+                        <div class="direction-label label-left">LEFT</div>
+                        <div class="direction-label label-right">RIGHT</div>
+                        <div class="direction-label label-back">BACK</div>
+                        
+                        <canvas id="spatial-pad"></canvas>
+                    </div>
+                </div>
+
+                <!-- Equalizer Card -->
+                <div class="effects-card">
+                    <div class="card-header">
+                        <div class="header-left">
+                            <i class="fa-solid fa-sliders icon-effect"></i>
+                            <h3>5-Band Equalizer</h3>
+                        </div>
+                        <select id="preset-selector">
+                            <option value="flat">Flat (Default)</option>
+                            <option value="bassboost">Bass Boost</option>
+                            <option value="vocalboost">Vocal Booster</option>
+                            <option value="electronic">Electronic</option>
+                            <option value="acoustic">Acoustic</option>
+                            <option value="cinematic">Cinematic</option>
+                        </select>
+                    </div>
+                    
+                    <div id="eq-container">
+                        <div class="eq-band">
+                            <span class="eq-val" id="eq-val-0">0dB</span>
+                            <input type="range" class="eq-slider" id="eq-band-0" min="-12" max="12" step="0.5" value="0" orient="vertical">
+                            <span class="eq-freq">60Hz</span>
+                        </div>
+                        <div class="eq-band">
+                            <span class="eq-val" id="eq-val-1">0dB</span>
+                            <input type="range" class="eq-slider" id="eq-band-1" min="-12" max="12" step="0.5" value="0" orient="vertical">
+                            <span class="eq-freq">230Hz</span>
+                        </div>
+                        <div class="eq-band">
+                            <span class="eq-val" id="eq-val-2">0dB</span>
+                            <input type="range" class="eq-slider" id="eq-band-2" min="-12" max="12" step="0.5" value="0" orient="vertical">
+                            <span class="eq-freq">910Hz</span>
+                        </div>
+                        <div class="eq-band">
+                            <span class="eq-val" id="eq-val-3">0dB</span>
+                            <input type="range" class="eq-slider" id="eq-band-3" min="-12" max="12" step="0.5" value="0" orient="vertical">
+                            <span class="eq-freq">4kHz</span>
+                        </div>
+                        <div class="eq-band">
+                            <span class="eq-val" id="eq-val-4">0dB</span>
+                            <input type="range" class="eq-slider" id="eq-band-4" min="-12" max="12" step="0.5" value="0" orient="vertical">
+                            <span class="eq-freq">14kHz</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Playlist Creator Dialog (Custom modal) -->
+    <div id="modal-container" class="modal-hidden">
+        <div id="modal-content">
+            <h3>Create Playlist</h3>
+            <input type="text" id="playlist-name-input" placeholder="Playlist Name" maxlength="25">
+            <div class="modal-buttons">
+                <button id="modal-cancel">Cancel</button>
+                <button id="modal-submit">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

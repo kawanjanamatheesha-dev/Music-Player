@@ -1,0 +1,18 @@
+{
+  "name": "Aether 3D & 8D Music Player",
+  "short_name": "Aether Player",
+  "description": "Premium 3D & 8D Music Player with Equalizer, Playlists, and local storage support.",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#07070c",
+  "theme_color": "#07070c",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3005/3005199.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
