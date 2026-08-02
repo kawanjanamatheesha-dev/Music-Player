@@ -72,6 +72,26 @@ let djFilterNode = null;
 let djFilterValue = 0; // [-100, 100]
 let djSpeed = 1.0;     // [0.5, 2.0]
 
+// --- 5.1 Virtual Surround State ---
+let isSurroundMode = false;
+let surroundNodes = []; // Array of { name, panner, gain, delay, x, z }
+let lfeFilterNode = null;
+let lfeGainNode = null;
+let lfePannerNode = null;
+
+// --- Voice Recorder State ---
+let mediaRecorder = null;
+let recordedChunks = [];
+let isRecording = false;
+let recorderInterval = null;
+let recorderDuration = 0;
+
+// --- Microphone Mixing State ---
+let micStream = null;
+let micSourceNode = null;
+let micGainNode = null;
+let isMicActive = false;
+
 // --- DOM Elements ---
 const elPlayPauseBtn = document.getElementById("btn-play-pause");
 const elPrevBtn = document.getElementById("btn-prev");
@@ -115,8 +135,18 @@ const elBtnSfxLaser = document.getElementById("btn-sfx-laser");
 
 const elSpatialPad = document.getElementById("spatial-pad");
 const elBtnResetSpatial = document.getElementById("btn-reset-spatial");
+const elBtnToggleSurround = document.getElementById("btn-toggle-surround");
 const elCoordinatesDisplay = document.getElementById("coordinates-display");
 const elPresetSelector = document.getElementById("preset-selector");
+
+// Video screen and Microphone elements
+const elVideoScreen = document.getElementById("video-screen");
+const elBtnRecord = document.getElementById("btn-record");
+const elRecorderTimer = document.getElementById("recorder-timer");
+const elRecorderWave = document.getElementById("recorder-wave");
+const elToggleMic = document.getElementById("toggle-mic");
+const elSliderMicVolume = document.getElementById("slider-mic-volume");
+const elValMicVolume = document.getElementById("val-mic-volume");
 
 const elModalContainer = document.getElementById("modal-container");
 const elPlaylistNameInput = document.getElementById("playlist-name-input");
@@ -427,7 +457,8 @@ function initAudioEngine() {
     audioCtx = new AudioContextClass();
     
     // Create HTML Audio element
-    audioElement = new Audio();
+    // Use the video screen element as the player (plays both audio and video)
+    audioElement = elVideoScreen;
     audioElement.crossOrigin = "anonymous";
     
     // Hook audio events
@@ -517,20 +548,15 @@ function initAudioEngine() {
         audioCtx.listener.setOrientation(0, 0, -1, 0, 1, 0);
     }
     
-    // Connect dry path: DJ Filter -> Panner
-    djFilterNode.connect(pannerNode);
-    // Connect wet path: Reverb -> Panner
-    reverbWetGain.connect(pannerNode);
-    
     // --- Create Analyser ---
     analyserNode = audioCtx.createAnalyser();
     analyserNode.fftSize = 256;
     const bufferLength = analyserNode.frequencyBinCount;
     visualizerDataArray = new Uint8Array(bufferLength);
-    
-    // Panner -> Analyser -> Output Destination
-    pannerNode.connect(analyserNode);
     analyserNode.connect(audioCtx.destination);
+    
+    // Dynamically update audio connections (Surround mode / Single Panner mode)
+    updateAudioConnections();
     
     // Initial 3D Position setup
     updateSpatialPosition(0, 0, 0); // front center
@@ -589,6 +615,116 @@ function resetSpatialPosition() {
     }
     updateSpatialPosition(0, 0, 0);
     drawSpatialPad();
+}
+
+// --- Initialize Virtual 5.1 Surround Nodes ---
+function initSurroundNodes() {
+    if (!audioCtx || surroundNodes.length > 0) return;
+    
+    // Virtual 5.1 Speaker positions: [x, y, z, delaySeconds, gain]
+    // Uses Haas precedence effect delays to simulate a wide, room-wrapping soundstage.
+    const configs = [
+        { name: "C", x: 0, y: 0, z: -2, delay: 0.0, gain: 0.8 },        // Center (direct sound)
+        { name: "FL", x: -2.5, y: 0, z: -2.5, delay: 0.002, gain: 0.95 }, // Front Left
+        { name: "FR", x: 2.5, y: 0, z: -2.5, delay: 0.0025, gain: 0.95 },// Front Right
+        { name: "SL", x: -4.5, y: 0, z: 2.2, delay: 0.016, gain: 0.85 },  // Surround Left (delayed for rear width)
+        { name: "SR", x: 4.5, y: 0, z: 2.2, delay: 0.019, gain: 0.85 }   // Surround Right (delayed for rear width)
+    ];
+    
+    configs.forEach(cfg => {
+        const panner = audioCtx.createPanner();
+        panner.panningModel = 'HRTF';
+        panner.distanceModel = 'inverse';
+        panner.refDistance = 1;
+        panner.maxDistance = 10000;
+        panner.rolloffFactor = 1;
+        panner.coneInnerAngle = 360;
+        panner.coneOuterAngle = 360;
+        
+        const time = audioCtx.currentTime;
+        if (panner.positionX) {
+            panner.positionX.setValueAtTime(cfg.x, time);
+            panner.positionY.setValueAtTime(cfg.y, time);
+            panner.positionZ.setValueAtTime(cfg.z, time);
+        } else {
+            panner.setPosition(cfg.x, cfg.y, cfg.z);
+        }
+        
+        const gain = audioCtx.createGain();
+        gain.gain.value = cfg.gain;
+        
+        const delay = audioCtx.createDelay(1.0);
+        delay.delayTime.value = cfg.delay;
+        
+        // Connect chain: input -> delay -> gain -> panner
+        delay.connect(gain);
+        gain.connect(panner);
+        
+        surroundNodes.push({ name: cfg.name, panner, gain, delay, x: cfg.x, z: cfg.z });
+    });
+    
+    // Subwoofer / LFE (Low Frequency Effects) channel
+    lfeFilterNode = audioCtx.createBiquadFilter();
+    lfeFilterNode.type = "lowpass";
+    lfeFilterNode.frequency.value = 120; // Cuts off mids/highs
+    
+    lfeGainNode = audioCtx.createGain();
+    lfeGainNode.gain.value = 1.0;
+    
+    lfePannerNode = audioCtx.createPanner();
+    lfePannerNode.panningModel = 'HRTF';
+    lfePannerNode.setPosition(0, -1, 0); // Placed at center floor
+    
+    lfeFilterNode.connect(lfeGainNode);
+    lfeGainNode.connect(lfePannerNode);
+}
+
+// --- Update Audio Connections ---
+function updateAudioConnections() {
+    if (!audioCtx || !djFilterNode) return;
+    
+    // Disconnect existing graph paths to prevent duplicates
+    try {
+        djFilterNode.disconnect();
+        reverbWetGain.disconnect();
+        pannerNode.disconnect();
+        surroundNodes.forEach(node => {
+            node.panner.disconnect();
+        });
+        if (lfePannerNode) {
+            lfePannerNode.disconnect();
+        }
+    } catch (e) {
+        // Safe check for nodes not connected yet
+    }
+    
+    // Connect feedback reverb loop path
+    djFilterNode.connect(delayNode);
+    
+    if (isSurroundMode) {
+        // Initialize surround nodes if they haven't been created yet
+        initSurroundNodes();
+        
+        // Connect dry path: DJ Filter -> each of the 5 delay lines -> analyser
+        surroundNodes.forEach(node => {
+            djFilterNode.connect(node.delay);
+            node.panner.connect(analyserNode);
+        });
+        
+        // Connect deep bass subwoofer path
+        djFilterNode.connect(lfeFilterNode);
+        lfePannerNode.connect(analyserNode);
+        
+        // Connect wet reverb to surround speakers for spatial diffuse decay
+        surroundNodes.forEach(node => {
+            reverbWetGain.connect(node.panner);
+        });
+    } else {
+        // Standard interactive single source speaker
+        djFilterNode.connect(pannerNode);
+        reverbWetGain.connect(pannerNode);
+        pannerNode.connect(analyserNode);
+    }
 }
 
 // --- Update DJ Filter Node ---
@@ -1177,43 +1313,86 @@ function drawSpatialPad() {
     elSpatialPadCtx.fillRect(centerX - 12, centerY - 4, 3, 8); // left cup
     elSpatialPadCtx.fillRect(centerX + 9, centerY - 4, 3, 8);  // right cup
     
-    // Draw Speaker Node (Sound source)
-    // Map sound source coordinates: Max coordinates is roughly 6 meters
-    // Map currentX (-6.0 to 6.0) -> Pad (0 to width)
-    // Map currentZ (-6.0 to 6.0) -> Pad (0 to height)
+    // Draw Speakers based on Mode
     const maxCoord = 6.0;
-    const speakerX = centerX + (currentX / maxCoord) * centerX;
-    const speakerZ = centerY + (currentZ / maxCoord) * centerY;
     
-    // Draw orbit path if 8D enabled
-    if (is8DEnabled) {
-        elSpatialPadCtx.strokeStyle = "rgba(255, 0, 127, 0.15)";
-        elSpatialPadCtx.lineWidth = 2;
-        elSpatialPadCtx.shadowBlur = 0;
+    if (isSurroundMode) {
+        // Draw 5 virtual speakers (FL, FR, C, SL, SR)
+        const speakerPositions = [
+            { name: "C", x: 0, z: -2.0 },
+            { name: "FL", x: -2.5, z: -2.5 },
+            { name: "FR", x: 2.5, z: -2.5 },
+            { name: "SL", x: -4.5, z: 2.2 },
+            { name: "SR", x: 4.5, z: 2.2 }
+        ];
         
-        const radiusMeters = 1.0 + (orbitRadius / 100) * 5.0;
-        const orbitRadiusPx = (radiusMeters / maxCoord) * centerX;
+        speakerPositions.forEach(spk => {
+            const spkX = centerX + (spk.x / maxCoord) * centerX;
+            const spkZ = centerY + (spk.z / maxCoord) * centerY;
+            
+            // Draw glowing projection line to center (user)
+            elSpatialPadCtx.strokeStyle = "rgba(0, 243, 255, 0.18)";
+            elSpatialPadCtx.lineWidth = 1;
+            elSpatialPadCtx.beginPath();
+            elSpatialPadCtx.moveTo(centerX, centerY);
+            elSpatialPadCtx.lineTo(spkX, spkZ);
+            elSpatialPadCtx.stroke();
+            
+            // Draw speaker circles
+            elSpatialPadCtx.fillStyle = "rgba(155, 81, 224, 0.2)";
+            elSpatialPadCtx.strokeStyle = "var(--tertiary-neon)";
+            elSpatialPadCtx.lineWidth = 2;
+            elSpatialPadCtx.shadowBlur = 10;
+            elSpatialPadCtx.shadowColor = "rgba(155, 81, 224, 0.6)";
+            
+            elSpatialPadCtx.beginPath();
+            elSpatialPadCtx.arc(spkX, spkZ, 8, 0, Math.PI * 2);
+            elSpatialPadCtx.fill();
+            elSpatialPadCtx.stroke();
+            
+            // Draw speaker label
+            elSpatialPadCtx.shadowBlur = 0;
+            elSpatialPadCtx.fillStyle = "#ffffff";
+            elSpatialPadCtx.font = "8px 'Outfit', sans-serif";
+            elSpatialPadCtx.textAlign = "center";
+            elSpatialPadCtx.textBaseline = "middle";
+            elSpatialPadCtx.fillText(spk.name, spkX, spkZ);
+        });
+    } else {
+        // Draw Single Speaker Node (Sound source)
+        const speakerX = centerX + (currentX / maxCoord) * centerX;
+        const speakerZ = centerY + (currentZ / maxCoord) * centerY;
+        
+        // Draw orbit path if 8D enabled
+        if (is8DEnabled) {
+            elSpatialPadCtx.strokeStyle = "rgba(255, 0, 127, 0.15)";
+            elSpatialPadCtx.lineWidth = 2;
+            elSpatialPadCtx.shadowBlur = 0;
+            
+            const radiusMeters = 1.0 + (orbitRadius / 100) * 5.0;
+            const orbitRadiusPx = (radiusMeters / maxCoord) * centerX;
+            
+            elSpatialPadCtx.beginPath();
+            elSpatialPadCtx.arc(centerX, centerY, orbitRadiusPx, 0, Math.PI * 2);
+            elSpatialPadCtx.stroke();
+        }
+        
+        // Speaker Dot
+        elSpatialPadCtx.fillStyle = "var(--secondary-neon)";
+        elSpatialPadCtx.shadowBlur = 15;
+        elSpatialPadCtx.shadowColor = "rgba(255, 0, 127, 0.8)";
         
         elSpatialPadCtx.beginPath();
-        elSpatialPadCtx.arc(centerX, centerY, orbitRadiusPx, 0, Math.PI * 2);
-        elSpatialPadCtx.stroke();
+        elSpatialPadCtx.arc(speakerX, speakerZ, 10, 0, Math.PI * 2);
+        elSpatialPadCtx.fill();
+        
+        // Speaker inner core
+        elSpatialPadCtx.fillStyle = "#ffffff";
+        elSpatialPadCtx.shadowBlur = 0;
+        elSpatialPadCtx.beginPath();
+        elSpatialPadCtx.arc(speakerX, speakerZ, 4, 0, Math.PI * 2);
+        elSpatialPadCtx.fill();
     }
-    
-    // Speaker Dot
-    elSpatialPadCtx.fillStyle = "var(--secondary-neon)";
-    elSpatialPadCtx.shadowBlur = 15;
-    elSpatialPadCtx.shadowColor = "rgba(255, 0, 127, 0.8)";
-    
-    elSpatialPadCtx.beginPath();
-    elSpatialPadCtx.arc(speakerX, speakerZ, 10, 0, Math.PI * 2);
-    elSpatialPadCtx.fill();
-    
-    // Speaker inner core
-    elSpatialPadCtx.fillStyle = "#ffffff";
-    elSpatialPadCtx.shadowBlur = 0;
-    elSpatialPadCtx.beginPath();
-    elSpatialPadCtx.arc(speakerX, speakerZ, 4, 0, Math.PI * 2);
-    elSpatialPadCtx.fill();
 }
 
 // --- Resize Canvas Elements for High DPI screens ---
@@ -1257,6 +1436,15 @@ function handleSpatialPadInput(e) {
         elToggle8d.checked = false;
     }
     
+    // Disable 5.1 Surround mode if user manually drags speaker
+    if (isSurroundMode) {
+        isSurroundMode = false;
+        if (elBtnToggleSurround) {
+            elBtnToggleSurround.classList.remove("active");
+        }
+        updateAudioConnections();
+    }
+    
     updateSpatialPosition(x, 0, z);
     drawSpatialPad();
 }
@@ -1292,6 +1480,14 @@ function setupEventListeners() {
     elToggle8d.addEventListener("change", () => {
         is8DEnabled = elToggle8d.checked;
         if (is8DEnabled) {
+            // Disable 5.1 Surround mode if enabling 8D
+            if (isSurroundMode) {
+                isSurroundMode = false;
+                if (elBtnToggleSurround) {
+                    elBtnToggleSurround.classList.remove("active");
+                }
+                updateAudioConnections();
+            }
             initAudioEngine();
             lastFrameTime = performance.now();
             requestAnimationFrame(processOrbitEffect);
@@ -1339,6 +1535,31 @@ function setupEventListeners() {
     // 3D Spatial Reset Button
     if (elBtnResetSpatial) {
         elBtnResetSpatial.addEventListener("click", resetSpatialPosition);
+    }
+    
+    // 5.1 Virtual Surround Toggle Button
+    if (elBtnToggleSurround) {
+        elBtnToggleSurround.addEventListener("click", () => {
+            initAudioEngine();
+            isSurroundMode = !isSurroundMode;
+            elBtnToggleSurround.classList.toggle("active", isSurroundMode);
+            
+            // Turn off 8D mode if enabling surround mode
+            if (isSurroundMode && is8DEnabled) {
+                is8DEnabled = false;
+                elToggle8d.checked = false;
+            }
+            
+            updateAudioConnections();
+            
+            if (isSurroundMode) {
+                elCoordinatesDisplay.textContent = "5.1 Surround";
+            } else {
+                updateCoordinatesBadge();
+            }
+            
+            drawSpatialPad();
+        });
     }
     
     // DJ Panel Toggle
