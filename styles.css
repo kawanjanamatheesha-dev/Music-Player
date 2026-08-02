@@ -682,6 +682,7 @@ input:checked + .slider-toggle:before {
     height: 100%;
     display: block;
     cursor: crosshair;
+    touch-action: none;
 }
 
 .direction-label {
@@ -943,41 +944,109 @@ input:checked + .slider-toggle:before {
 }
 
 /* Responsiveness Settings */
+#mobile-nav {
+    display: none;
+}
+
 @media (max-width: 1024px) {
-    #app-container {
-        grid-template-columns: 1fr;
-        grid-template-rows: 60px 1fr;
+    #mobile-nav {
+        display: flex;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100vw;
+        height: 65px;
+        background: rgba(10, 10, 20, 0.85);
+        backdrop-filter: blur(25px) saturate(180%);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        z-index: 1000;
+        justify-content: space-around;
+        align-items: center;
+        padding-bottom: env(safe-area-inset-bottom);
     }
     
-    #sidebar {
-        display: none; /* In production we could make a slide-out, but to make it simple we'll keep a unified layout */
+    .nav-tab {
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        cursor: pointer;
+        flex: 1;
+        height: 100%;
+        font-family: var(--font-sans);
+        font-size: 11px;
+        font-weight: 600;
+        transition: var(--transition-smooth);
+    }
+    
+    .nav-tab i {
+        font-size: 18px;
+        transition: var(--transition-smooth);
+    }
+    
+    .nav-tab.active {
+        color: var(--primary-neon);
+    }
+    
+    .nav-tab.active i {
+        filter: drop-shadow(0 0 8px rgba(0, 243, 255, 0.6));
+        transform: translateY(-2px);
+    }
+    
+    #app-container {
+        height: calc(100vh - 65px - env(safe-area-inset-bottom)) !important;
+        grid-template-columns: 1fr !important;
+        grid-template-rows: 1fr !important;
     }
     
     #main-content {
-        grid-template-columns: 1fr;
-        overflow-y: auto;
+        grid-template-columns: 1fr !important;
+        height: 100% !important;
+        overflow: hidden !important;
     }
     
-    #player-view {
-        border-right: none;
-        border-bottom: 1px solid var(--border-glass);
-        padding: 30px;
+    /* View Toggling via body classes */
+    #sidebar, #player-view, #effects-view {
+        display: none !important;
     }
     
-    #effects-view {
-        overflow-y: visible;
-        padding: 30px;
+    body.tab-library #sidebar {
+        display: flex !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        height: 100% !important;
+        border-right: none !important;
+    }
+    
+    body.tab-player #player-view {
+        display: flex !important;
+        width: 100% !important;
+        height: 100% !important;
+        border-right: none !important;
+        padding: 30px 20px;
+    }
+    
+    body.tab-effects #effects-view {
+        display: flex !important;
+        width: 100% !important;
+        height: 100% !important;
+        overflow-y: auto !important;
+        padding: 24px 20px;
     }
 }
 
-/* Support for showing sidebar drawer on small screens if we decide to */
 @media (max-width: 768px) {
-    #player-view {
-        padding: 20px;
+    body.tab-player #player-view {
+        padding: 20px 16px;
     }
     .art-container {
         width: 220px;
         height: 220px;
+        margin: 10px 0;
     }
     #album-art {
         width: 170px;
@@ -985,5 +1054,11 @@ input:checked + .slider-toggle:before {
     }
     .art-disc {
         font-size: 72px;
+    }
+    .current-track-info h1 {
+        font-size: 22px;
+    }
+    .current-track-info p {
+        font-size: 13px;
     }
 }

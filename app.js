@@ -1072,8 +1072,8 @@ function drawVisualizer() {
     
     analyserNode.getByteFrequencyData(visualizerDataArray);
     
-    const width = elVisualizerCanvas.width;
-    const height = elVisualizerCanvas.height;
+    const width = elVisualizerCanvas.width / window.devicePixelRatio;
+    const height = elVisualizerCanvas.height / window.devicePixelRatio;
     
     visualizerCtx.clearRect(0, 0, width, height);
     
@@ -1136,8 +1136,8 @@ function drawVisualizer() {
 
 // --- 3D Spatial Pad Renderer & Controller ---
 function drawSpatialPad() {
-    const width = elSpatialPad.width;
-    const height = elSpatialPad.height;
+    const width = elSpatialPad.width / window.devicePixelRatio;
+    const height = elSpatialPad.height / window.devicePixelRatio;
     
     elSpatialPadCtx.clearRect(0, 0, width, height);
     
@@ -1479,6 +1479,33 @@ function setupEventListeners() {
     window.addEventListener("resize", resizeCanvases);
 }
 
+// --- Mobile Tab Navigation ---
+function setupMobileNavigation() {
+    const tabs = document.querySelectorAll(".nav-tab");
+    
+    // Set default tab on mobile
+    document.body.classList.add("tab-player");
+    
+    tabs.forEach(tab => {
+        tab.addEventListener("click", () => {
+            // Remove active from all tabs
+            tabs.forEach(t => t.classList.remove("active"));
+            // Add active to clicked tab
+            tab.classList.add("active");
+            
+            // Switch body class
+            const target = tab.getAttribute("data-target");
+            document.body.classList.remove("tab-player", "tab-library", "tab-effects");
+            document.body.classList.add(`tab-${target}`);
+            
+            // If switching to active views with canvases, redraw them
+            if (target === "effects" || target === "player") {
+                setTimeout(resizeCanvases, 100);
+            }
+        });
+    });
+}
+
 // --- Application Entry Point ---
 window.addEventListener("DOMContentLoaded", async () => {
     // Initial display config
@@ -1487,6 +1514,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     
     // Setup event bounds
     setupEventListeners();
+    setupMobileNavigation();
     
     // Draw initial empty spaces
     resizeCanvases();
