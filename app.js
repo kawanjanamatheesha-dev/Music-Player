@@ -65,6 +65,11 @@ let currentX = 0;      // 3D coordinates [-5, 5]
 let currentZ = 0;
 let currentY = 0;
 let lastFrameTime = performance.now();
+let orbitTimer = null; // Background orbit timer when screen is hidden
+
+// --- Screen Wake Lock State ---
+let wakeLock = null;
+let isWakeLockActive = false;
 
 // --- DJ Panel State ---
 let isDjEnabled = false;
@@ -139,8 +144,10 @@ const elBtnToggleSurround = document.getElementById("btn-toggle-surround");
 const elCoordinatesDisplay = document.getElementById("coordinates-display");
 const elPresetSelector = document.getElementById("preset-selector");
 
-// Video screen and Microphone elements
+// Video screen, Audio element, Wake Lock and Microphone elements
+const elAudioScreen = document.getElementById("audio-screen");
 const elVideoScreen = document.getElementById("video-screen");
+const elWakeLockBtn = document.getElementById("btn-wake-lock");
 const elBtnRecord = document.getElementById("btn-record");
 const elRecorderTimer = document.getElementById("recorder-timer");
 const elRecorderWave = document.getElementById("recorder-wave");
@@ -456,17 +463,30 @@ function initAudioEngine() {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     audioCtx = new AudioContextClass();
     
-    // Create HTML Audio element
-    // Use the video screen element as the player (plays both audio and video)
-    audioElement = elVideoScreen;
+    // Auto-resume AudioContext whenever state turns to suspended while playing
+    audioCtx.onstatechange = () => {
+        if (audioCtx.state === "suspended" && isPlaying) {
+            audioCtx.resume().catch(() => {});
+        }
+    };
+    
+    // Use dedicated HTML5 Audio element for maximum mobile OS background audio compatibility
+    audioElement = elAudioScreen || elVideoScreen;
     audioElement.crossOrigin = "anonymous";
     
     // Hook audio events
     audioElement.addEventListener("ended", handleTrackEnded);
-    audioElement.addEventListener("timeupdate", updateProgressBar);
+    audioElement.addEventListener("timeupdate", () => {
+        updateProgressBar();
+        updateMediaSessionState();
+    });
     audioElement.addEventListener("loadedmetadata", () => {
         elTimeDuration.textContent = formatTime(audioElement.duration);
+        updateMediaSessionState();
     });
+    
+    // Initialize Media Session API
+    setupMediaSession();
     
     // Create source
     audioSource = audioCtx.createMediaElementSource(audioElement);
@@ -566,6 +586,120 @@ function initAudioEngine() {
     
     // Trigger visualizer loop
     drawVisualizer();
+}
+
+// --- Media Session API (Background & Lock screen playback support) ---
+function setupMediaSession() {
+    if (!('mediaSession' in navigator)) return;
+
+    try {
+        navigator.mediaSession.setActionHandler('play', () => handlePlayPause());
+        navigator.mediaSession.setActionHandler('pause', () => handlePlayPause());
+        navigator.mediaSession.setActionHandler('previoustrack', () => handlePrev());
+        navigator.mediaSession.setActionHandler('nexttrack', () => handleNext());
+        
+        try {
+            navigator.mediaSession.setActionHandler('seekto', (details) => {
+                if (audioElement && details.seekTime !== undefined) {
+                    audioElement.currentTime = details.seekTime;
+                    updateProgressBar();
+                    updateMediaSessionState();
+                }
+            });
+        } catch (e) {}
+
+        try {
+            navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+                if (audioElement) {
+                    const skipTime = details.seekOffset || 10;
+                    audioElement.currentTime = Math.max(audioElement.currentTime - skipTime, 0);
+                    updateProgressBar();
+                    updateMediaSessionState();
+                }
+            });
+        } catch (e) {}
+
+        try {
+            navigator.mediaSession.setActionHandler('seekforward', (details) => {
+                if (audioElement) {
+                    const skipTime = details.seekOffset || 10;
+                    audioElement.currentTime = Math.min(audioElement.currentTime + skipTime, audioElement.duration || 0);
+                    updateProgressBar();
+                    updateMediaSessionState();
+                }
+            });
+        } catch (e) {}
+    } catch (err) {
+        console.warn("Media Session API setup error:", err);
+    }
+}
+
+function updateMediaSessionMetadata(song) {
+    if (!('mediaSession' in navigator) || !song) return;
+    try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+            title: song.title || "Unknown Track",
+            artist: song.artist || "Aether Spatial Engine",
+            album: "Aether 3D & 8D Player",
+            artwork: [
+                { src: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=192&h=192&fit=crop", sizes: "192x192", type: "image/jpeg" },
+                { src: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=512&h=512&fit=crop", sizes: "512x512", type: "image/jpeg" }
+            ]
+        });
+        updateMediaSessionState();
+    } catch (err) {
+        console.warn("Media Session Metadata update failed:", err);
+    }
+}
+
+function updateMediaSessionState() {
+    if (!('mediaSession' in navigator)) return;
+    try {
+        navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+        if (audioElement && !isNaN(audioElement.duration) && audioElement.duration > 0) {
+            navigator.mediaSession.setPositionState({
+                duration: audioElement.duration,
+                playbackRate: audioElement.playbackRate || 1.0,
+                position: Math.min(audioElement.currentTime || 0, audioElement.duration)
+            });
+        }
+    } catch (e) {}
+}
+
+// --- Screen Wake Lock API ---
+async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+        try {
+            wakeLock = await navigator.wakeLock.request('screen');
+            isWakeLockActive = true;
+            if (elWakeLockBtn) elWakeLockBtn.classList.add('active');
+            wakeLock.addEventListener('release', () => {
+                isWakeLockActive = false;
+                if (elWakeLockBtn) elWakeLockBtn.classList.remove('active');
+            });
+        } catch (err) {
+            console.warn("Screen Wake Lock failed:", err);
+        }
+    }
+}
+
+async function releaseWakeLock() {
+    if (wakeLock) {
+        try {
+            await wakeLock.release();
+            wakeLock = null;
+        } catch (err) {}
+    }
+    isWakeLockActive = false;
+    if (elWakeLockBtn) elWakeLockBtn.classList.remove('active');
+}
+
+function toggleWakeLock() {
+    if (isWakeLockActive) {
+        releaseWakeLock();
+    } else {
+        requestWakeLock();
+    }
 }
 
 // --- Set Reverb Level ---
@@ -888,36 +1022,44 @@ function playLaserSFX() {
 
 // --- 8D Orbit Effect loop ---
 function processOrbitEffect(time) {
-    if (!is8DEnabled) return;
+    if (!is8DEnabled) {
+        if (orbitTimer) {
+            clearTimeout(orbitTimer);
+            orbitTimer = null;
+        }
+        return;
+    }
     
-    // Delta time to keep speed consistent regardless of framerate
-    const delta = (time - lastFrameTime) / 1000;
-    lastFrameTime = time;
+    const nowTime = time || performance.now();
+    const delta = Math.min((nowTime - lastFrameTime) / 1000, 0.1);
+    lastFrameTime = nowTime;
     
-    // Increment angle based on speed in Hz (cycles per second)
-    // angle += speed * 2*PI * dt
     orbitAngle += orbitSpeed * Math.PI * 2 * delta;
     if (orbitAngle > Math.PI * 2) {
         orbitAngle -= Math.PI * 2;
     }
     
-    // Calculate radius in meters: map 10-100% to 1.0-6.0 meters
     const radiusMeters = 1.0 + (orbitRadius / 100) * 5.0;
-    
-    // Calculate circular coordinates: 
-    // X = radius * sin(angle) (panning left-right)
-    // Z = radius * cos(angle) (moving front-back)
-    // Y = height oscillation (optional, small variance to create full spheres of sound)
     const x = Math.sin(orbitAngle) * radiusMeters;
-    const z = -Math.cos(orbitAngle) * radiusMeters; // negate cos so starting is directly front
-    const y = Math.sin(orbitAngle * 0.5) * (radiusMeters * 0.2); // slight 3D elevation curve
+    const z = -Math.cos(orbitAngle) * radiusMeters;
+    const y = Math.sin(orbitAngle * 0.5) * (radiusMeters * 0.2);
     
     updateSpatialPosition(x, y, z);
     
-    // Redraw spatial pad to animate speaker node
-    drawSpatialPad();
+    if (!document.hidden) {
+        drawSpatialPad();
+    }
     
-    requestAnimationFrame(processOrbitEffect);
+    if (is8DEnabled) {
+        if (document.hidden) {
+            // When screen/tab is hidden, requestAnimationFrame is suspended.
+            // Fallback to setTimeout to keep 8D sound rotating in background!
+            if (orbitTimer) clearTimeout(orbitTimer);
+            orbitTimer = setTimeout(() => processOrbitEffect(performance.now()), 33);
+        } else {
+            requestAnimationFrame(processOrbitEffect);
+        }
+    }
 }
 
 // --- Equalizer Configuration ---
@@ -1016,6 +1158,7 @@ function playSongAtIndex(index) {
         document.body.classList.add("is-playing");
         updatePlayPauseUI();
         renderSongList();
+        updateMediaSessionMetadata(song);
     }).catch(err => {
         console.error("Audio playback error:", err);
         alert("Playback failed. Please select another song or try uploading a fresh copy.");
@@ -1050,6 +1193,7 @@ function handlePlayPause() {
     
     updatePlayPauseUI();
     renderSongList();
+    updateMediaSessionState();
 }
 
 function handleNext() {
@@ -1696,6 +1840,32 @@ function setupEventListeners() {
         }
     });
     
+    // Wake Lock button toggle
+    if (elWakeLockBtn) {
+        elWakeLockBtn.addEventListener("click", toggleWakeLock);
+    }
+
+    // Page Visibility change & AudioContext auto-resume safety
+    document.addEventListener("visibilitychange", () => {
+        if (isPlaying && audioCtx && audioCtx.state === "suspended") {
+            audioCtx.resume().catch(() => {});
+        }
+        if (!document.hidden && is8DEnabled) {
+            lastFrameTime = performance.now();
+            requestAnimationFrame(processOrbitEffect);
+        }
+        if (!document.hidden && isWakeLockActive && wakeLock && wakeLock.released) {
+            requestWakeLock();
+        }
+    });
+
+    // Periodic heartbeat to ensure AudioContext stays alive during background play
+    setInterval(() => {
+        if (isPlaying && audioCtx && audioCtx.state === "suspended") {
+            audioCtx.resume().catch(() => {});
+        }
+    }, 1000);
+
     // Resize handler
     window.addEventListener("resize", resizeCanvases);
 }
