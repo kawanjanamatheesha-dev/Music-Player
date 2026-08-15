@@ -1,4 +1,4 @@
-const CACHE_NAME = "aether-player-v3";
+const CACHE_NAME = "aether-player-v5";
 const ASSETS = [
   "index.html",
   "styles.css",

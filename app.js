@@ -274,9 +274,13 @@ async function loadDataFromDB() {
 
 // --- Save Playlist to DB ---
 function savePlaylistToDB(playlist) {
-    if (!db) return;
-    const transaction = db.transaction("playlists", "readwrite");
-    transaction.objectStore("playlists").put(playlist);
+    return new Promise((resolve) => {
+        if (!db) return resolve();
+        const transaction = db.transaction("playlists", "readwrite");
+        const req = transaction.objectStore("playlists").put(playlist);
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+    });
 }
 
 // --- Delete Playlist from DB ---
@@ -1534,18 +1538,28 @@ function formatTime(seconds) {
 
 // --- File Upload and Parsing ---
 async function handleFileUpload(files) {
+    if (!files || files.length === 0) return;
+    
+    // Auto-create/switch to custom playlist if on demo playlist
     if (currentPlaylistId === "demo") {
-        alert("Demo Tracks cannot be modified. Please select or create a custom playlist on the left first.");
-        return;
+        let userPl = playlists.find(p => p.id !== "demo");
+        if (!userPl) {
+            userPl = { id: "my_library", name: "My Library" };
+            playlists.push(userPl);
+            await savePlaylistToDB(userPl);
+        }
+        currentPlaylistId = userPl.id;
+        renderPlaylists();
     }
     
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        if (!file.type.startsWith("audio/")) continue;
+        const isAudioOrVideo = file.type.startsWith("audio/") || file.type.startsWith("video/") || /\.(mp3|m4a|wav|aac|flac|ogg|mp4|webm|mkv)$/i.test(file.name);
+        if (!isAudioOrVideo) continue;
         
         // Setup clean metadata
         let title = file.name.replace(/\.[^/.]+$/, ""); // Strip extension
-        let artist = "Unknown Artist";
+        let artist = "Local File";
         
         // Rough parse of "Artist - Title" formats
         if (title.includes(" - ")) {
@@ -1557,13 +1571,12 @@ async function handleFileUpload(files) {
         // Load file info to find duration
         const durStr = await getAudioDurationString(file);
         
-        // Convert File to ArrayBuffer to prevent DataCloneError in iOS Safari
-        let arrayBuffer;
+        let fileBlob = file;
         try {
-            arrayBuffer = await file.arrayBuffer();
+            const buffer = await file.arrayBuffer();
+            fileBlob = new Blob([buffer], { type: file.type || "audio/mpeg" });
         } catch (e) {
-            console.error("Error reading file to ArrayBuffer:", e);
-            continue;
+            console.warn("ArrayBuffer fallback:", e);
         }
         
         const newSong = {
@@ -1572,12 +1585,16 @@ async function handleFileUpload(files) {
             artist: artist,
             duration: durStr,
             playlistId: currentPlaylistId,
-            audioData: arrayBuffer,
-            mimeType: file.type
+            audioBlob: fileBlob,
+            mimeType: file.type || "audio/mpeg"
         };
         
         songs.push(newSong);
-        await saveSongToDB(newSong);
+        try {
+            await saveSongToDB(newSong);
+        } catch (dbErr) {
+            console.error("IndexedDB Save Song error:", dbErr);
+        }
     }
     
     selectPlaylist(currentPlaylistId);
@@ -1585,15 +1602,28 @@ async function handleFileUpload(files) {
 
 function getAudioDurationString(file) {
     return new Promise((resolve) => {
+        let timer = null;
         const audio = document.createElement("audio");
-        audio.src = URL.createObjectURL(file);
+        const url = URL.createObjectURL(file);
+        audio.src = url;
+        
+        const cleanup = (dur) => {
+            if (timer) clearTimeout(timer);
+            try { URL.revokeObjectURL(url); } catch (e) {}
+            resolve(dur);
+        };
+        
         audio.addEventListener("loadedmetadata", () => {
-            resolve(formatTime(audio.duration));
-            URL.revokeObjectURL(audio.src);
+            cleanup(formatTime(audio.duration));
         });
+        
         audio.addEventListener("error", () => {
-            resolve("0:00");
+            cleanup("0:00");
         });
+        
+        timer = setTimeout(() => {
+            cleanup("0:00");
+        }, 1500);
     });
 }
 
@@ -2404,6 +2434,19 @@ function setupEventListeners() {
         });
     }
     
+    // Upload zone click & file input change handlers
+    if (elUploadZone && elFileInput) {
+        elUploadZone.addEventListener("click", () => {
+            elFileInput.click();
+        });
+        elFileInput.addEventListener("change", (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                handleFileUpload(e.target.files);
+                elFileInput.value = "";
+            }
+        });
+    }
+
     // Drag over styling
     elUploadZone.addEventListener("dragover", (e) => {
         e.preventDefault();
