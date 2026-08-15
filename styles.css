@@ -1,16 +1,16 @@
-/* Design Tokens & Theme Variables */
+/* Design Tokens & Theme Variables - Ultra Monochrome Black & White */
 :root {
-    --bg-dark: #07070c;
-    --bg-card: rgba(13, 13, 25, 0.65);
-    --border-glass: rgba(255, 255, 255, 0.07);
-    --text-primary: #f0f0f5;
-    --text-secondary: #9090a8;
-    --primary-neon: #00f3ff;
-    --secondary-neon: #ff007f;
-    --tertiary-neon: #9b51e0;
-    --shadow-neon: rgba(0, 243, 255, 0.25);
+    --bg-dark: #020204;
+    --bg-card: rgba(16, 16, 16, 0.85);
+    --border-glass: rgba(255, 255, 255, 0.12);
+    --text-primary: #ffffff;
+    --text-secondary: #aaaaaa;
+    --primary-neon: #ffffff;
+    --secondary-neon: #dddddd;
+    --tertiary-neon: #888888;
+    --shadow-neon: rgba(255, 255, 255, 0.2);
     --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-smooth: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Reset & Global Styles */
@@ -56,16 +56,18 @@ body {
 }
 
 #bg-glow::before {
-    background: var(--primary-neon);
-    top: -150px;
-    left: -150px;
+    background: #ffffff;
+    top: -200px;
+    left: -200px;
+    opacity: 0.06;
     animation: floatGlow 15s infinite alternate ease-in-out;
 }
 
 #bg-glow::after {
-    background: var(--secondary-neon);
-    bottom: -150px;
-    right: -150px;
+    background: #888888;
+    bottom: -200px;
+    right: -200px;
+    opacity: 0.06;
     animation: floatGlow 20s infinite alternate-reverse ease-in-out;
 }
 
@@ -105,19 +107,15 @@ body {
 
 .logo-icon {
     font-size: 28px;
-    background: linear-gradient(135deg, var(--primary-neon), var(--secondary-neon));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 2px 10px rgba(0, 243, 255, 0.4));
+    color: #ffffff;
+    filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6));
 }
 
 .sidebar-header h2 {
     font-size: 24px;
     font-weight: 800;
     letter-spacing: 1px;
-    background: linear-gradient(to right, #ffffff, #a0a0ff);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: #ffffff;
 }
 
 .section-title {
@@ -516,13 +514,90 @@ body.is-playing .art-disc {
 
 /* Right Panel: Audio Effects (3D, 8D, EQ) */
 #effects-view {
-    padding: 30px 24px;
-    overflow-y: auto;
-    background: rgba(10, 10, 20, 0.4);
+    padding: 20px 18px;
+    overflow: hidden;
+    background: rgba(8, 8, 8, 0.6);
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 16px;
     height: 100%;
+}
+
+/* Sub-tabs Navigation for Effects (Zero vertical scrolling) */
+.fx-tabs-nav {
+    display: flex;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    padding: 4px;
+    border-radius: 12px;
+    border: 1px solid var(--border-glass);
+}
+
+.fx-tab-btn {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 8px 6px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: var(--transition-smooth);
+}
+
+.fx-tab-btn:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.fx-tab-btn.active {
+    background: #ffffff;
+    color: #000000;
+    font-weight: 700;
+    box-shadow: 0 2px 10px rgba(255, 255, 255, 0.3);
+}
+
+.fx-tab-content {
+    display: none;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+    flex: 1;
+    padding-right: 4px;
+}
+
+.fx-tab-content.active {
+    display: flex;
+}
+
+/* Spatial Pad Mode Buttons */
+.spatial-mode-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-glass);
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: var(--transition-smooth);
+}
+
+.spatial-mode-btn:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.spatial-mode-btn.active {
+    background: #ffffff;
+    color: #000000;
+    font-weight: 700;
 }
 
 .effects-card {

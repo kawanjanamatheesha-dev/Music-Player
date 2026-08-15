@@ -73,18 +73,56 @@ let orbitTimer = null; // Background orbit timer when screen is hidden
 let wakeLock = null;
 let isWakeLockActive = false;
 
+// --- 5 NEW 3D Spatial Audio Effects State ---
+// 1. 3D Helix Altitude
+let isHelixEnabled = false;
+let helixSpeed = 1.2;
+let helixHeight = 3.5;
+let helixAngle = 0;
+
+// 2. 3D Pendulum Swing
+let isPendulumEnabled = false;
+let pendulumSpeed = 0.8;
+let pendulumWidth = 4.5;
+let pendulumAngle = 0;
+
+// 3. 3D Doppler Flyby Pass
+let isDopplerEnabled = false;
+let dopplerSpeed = 3;
+let isDopplerFlying = false;
+
+// 4. Hyper-Space 3D Echo Chamber
+let isEchoEnabled = false;
+let echoTime = 320; // ms
+let echoWidth = 75; // %
+let echoDelayNode = null;
+let echoFeedbackGain = null;
+
+// 5. 8D Spatial Wobble / Tremolo
+let isWobbleEnabled = false;
+let wobbleRate = 4.0; // Hz
+let wobbleDepth = 60; // %
+let wobbleGainNode = null;
+let wobbleAngle = 0;
+
 // --- DJ Panel State ---
 let isDjEnabled = false;
 let djFilterNode = null;
 let djFilterValue = 0; // [-100, 100]
 let djSpeed = 1.0;     // [0.5, 2.0]
 
-// --- 5.1 Virtual Surround State ---
+// --- 5.1 & 7.1 Virtual Surround & Soundstage Customizer State ---
 let isSurroundMode = false;
 let surroundNodes = []; // Array of { name, panner, gain, delay, x, z }
 let lfeFilterNode = null;
 let lfeGainNode = null;
 let lfePannerNode = null;
+
+let surroundPreset = "5.1";    // '5.1', '7.1', 'studio', 'stadium', '360'
+let surroundWidthScale = 1.0;  // 0.3 - 2.0
+let surroundSubGain = 1.0;     // 0.0 - 2.0
+let surroundRearDelay = 0.018; // seconds (0 - 0.040s)
+let surroundCenterGain = 1.0;  // 0.0 - 1.5
 
 // --- Voice Recorder State ---
 let mediaRecorder = null;
@@ -775,19 +813,61 @@ function resetSpatialPosition() {
     drawSpatialPad();
 }
 
-// --- Initialize Virtual 5.1 Surround Nodes ---
+// --- Surround Soundstage Presets & Customizer ---
+const SURROUND_PRESETS = {
+    "5.1": [
+        { name: "C", x: 0, y: 0, z: -2.0, delay: 0.0, gain: 0.85, isCenter: true },
+        { name: "FL", x: -2.5, y: 0, z: -2.5, delay: 0.002, gain: 0.95 },
+        { name: "FR", x: 2.5, y: 0, z: -2.5, delay: 0.0025, gain: 0.95 },
+        { name: "SL", x: -4.5, y: 0, z: 2.2, delay: 0.018, gain: 0.85, isRear: true },
+        { name: "SR", x: 4.5, y: 0, z: 2.2, delay: 0.019, gain: 0.85, isRear: true }
+    ],
+    "7.1": [
+        { name: "C", x: 0, y: 0, z: -2.2, delay: 0.0, gain: 0.9, isCenter: true },
+        { name: "FL", x: -2.8, y: 0, z: -2.8, delay: 0.001, gain: 0.95 },
+        { name: "FR", x: 2.8, y: 0, z: -2.8, delay: 0.0015, gain: 0.95 },
+        { name: "SL", x: -4.5, y: 0, z: 0.5, delay: 0.012, gain: 0.85 },
+        { name: "SR", x: 4.5, y: 0, z: 0.5, delay: 0.013, gain: 0.85 },
+        { name: "RL", x: -3.2, y: 0, z: 3.5, delay: 0.024, gain: 0.8, isRear: true },
+        { name: "RR", x: 3.2, y: 0, z: 3.5, delay: 0.026, gain: 0.8, isRear: true }
+    ],
+    "studio": [
+        { name: "L-Mon", x: -2.0, y: 0, z: -2.0, delay: 0.0, gain: 1.0 },
+        { name: "R-Mon", x: 2.0, y: 0, z: -2.0, delay: 0.0, gain: 1.0 },
+        { name: "M-Voice", x: 0, y: 0, z: -1.8, delay: 0.0, gain: 0.9, isCenter: true },
+        { name: "S-Wide", x: -5.0, y: 0, z: 0, delay: 0.015, gain: 0.7, isRear: true },
+        { name: "S-Wide2", x: 5.0, y: 0, z: 0, delay: 0.016, gain: 0.7, isRear: true }
+    ],
+    "stadium": [
+        { name: "C-Stage", x: 0, y: 0, z: -3.5, delay: 0.0, gain: 1.0, isCenter: true },
+        { name: "FL-Tower", x: -4.0, y: 1.5, z: -3.5, delay: 0.005, gain: 0.9 },
+        { name: "FR-Tower", x: 4.0, y: 1.5, z: -3.5, delay: 0.005, gain: 0.9 },
+        { name: "SL-Arena", x: -5.5, y: 0, z: 3.0, delay: 0.032, gain: 0.85, isRear: true },
+        { name: "SR-Arena", x: 5.5, y: 0, z: 3.0, delay: 0.035, gain: 0.85, isRear: true }
+    ],
+    "360": [
+        { name: "TOP", x: 0, y: 4.0, z: 0, delay: 0.008, gain: 0.8 },
+        { name: "FRONT", x: 0, y: 0, z: -3.0, delay: 0.0, gain: 0.9, isCenter: true },
+        { name: "BACK", x: 0, y: 0, z: 3.0, delay: 0.022, gain: 0.85, isRear: true },
+        { name: "LEFT", x: -4.0, y: 0, z: 0, delay: 0.012, gain: 0.85 },
+        { name: "RIGHT", x: 4.0, y: 0, z: 0, delay: 0.014, gain: 0.85 }
+    ]
+};
+
 function initSurroundNodes() {
-    if (!audioCtx || surroundNodes.length > 0) return;
+    if (!audioCtx) return;
     
-    // Virtual 5.1 Speaker positions: [x, y, z, delaySeconds, gain]
-    // Uses Haas precedence effect delays to simulate a wide, room-wrapping soundstage.
-    const configs = [
-        { name: "C", x: 0, y: 0, z: -2, delay: 0.0, gain: 0.8 },        // Center (direct sound)
-        { name: "FL", x: -2.5, y: 0, z: -2.5, delay: 0.002, gain: 0.95 }, // Front Left
-        { name: "FR", x: 2.5, y: 0, z: -2.5, delay: 0.0025, gain: 0.95 },// Front Right
-        { name: "SL", x: -4.5, y: 0, z: 2.2, delay: 0.016, gain: 0.85 },  // Surround Left (delayed for rear width)
-        { name: "SR", x: 4.5, y: 0, z: 2.2, delay: 0.019, gain: 0.85 }   // Surround Right (delayed for rear width)
-    ];
+    // Disconnect & clear old surround nodes if rebuilding
+    surroundNodes.forEach(node => {
+        try {
+            node.panner.disconnect();
+            node.gain.disconnect();
+            node.delay.disconnect();
+        } catch (e) {}
+    });
+    surroundNodes = [];
+    
+    const configs = SURROUND_PRESETS[surroundPreset] || SURROUND_PRESETS["5.1"];
     
     configs.forEach(cfg => {
         const panner = audioCtx.createPanner();
@@ -799,42 +879,56 @@ function initSurroundNodes() {
         panner.coneInnerAngle = 360;
         panner.coneOuterAngle = 360;
         
+        const scaledX = cfg.x * surroundWidthScale;
+        const scaledY = cfg.y * surroundWidthScale;
+        const scaledZ = cfg.z * surroundWidthScale;
+        
         const time = audioCtx.currentTime;
         if (panner.positionX) {
-            panner.positionX.setValueAtTime(cfg.x, time);
-            panner.positionY.setValueAtTime(cfg.y, time);
-            panner.positionZ.setValueAtTime(cfg.z, time);
+            panner.positionX.setValueAtTime(scaledX, time);
+            panner.positionY.setValueAtTime(scaledY, time);
+            panner.positionZ.setValueAtTime(scaledZ, time);
         } else {
-            panner.setPosition(cfg.x, cfg.y, cfg.z);
+            panner.setPosition(scaledX, scaledY, scaledZ);
+        }
+        
+        let nodeGainVal = cfg.gain;
+        if (cfg.isCenter) {
+            nodeGainVal *= surroundCenterGain;
         }
         
         const gain = audioCtx.createGain();
-        gain.gain.value = cfg.gain;
+        gain.gain.value = nodeGainVal;
+        
+        let nodeDelayVal = cfg.delay;
+        if (cfg.isRear) {
+            nodeDelayVal = surroundRearDelay;
+        }
         
         const delay = audioCtx.createDelay(1.0);
-        delay.delayTime.value = cfg.delay;
+        delay.delayTime.value = nodeDelayVal;
         
-        // Connect chain: input -> delay -> gain -> panner
         delay.connect(gain);
         gain.connect(panner);
         
-        surroundNodes.push({ name: cfg.name, panner, gain, delay, x: cfg.x, z: cfg.z });
+        surroundNodes.push({ name: cfg.name, panner, gain, delay, x: scaledX, z: scaledZ });
     });
     
-    // Subwoofer / LFE (Low Frequency Effects) channel
-    lfeFilterNode = audioCtx.createBiquadFilter();
-    lfeFilterNode.type = "lowpass";
-    lfeFilterNode.frequency.value = 120; // Cuts off mids/highs
+    if (!lfeFilterNode) {
+        lfeFilterNode = audioCtx.createBiquadFilter();
+        lfeFilterNode.type = "lowpass";
+        lfeFilterNode.frequency.value = 120;
+        
+        lfeGainNode = audioCtx.createGain();
+        lfePannerNode = audioCtx.createPanner();
+        lfePannerNode.panningModel = 'HRTF';
+        lfePannerNode.setPosition(0, -1, 0);
+        
+        lfeFilterNode.connect(lfeGainNode);
+        lfeGainNode.connect(lfePannerNode);
+    }
     
-    lfeGainNode = audioCtx.createGain();
-    lfeGainNode.gain.value = 1.0;
-    
-    lfePannerNode = audioCtx.createPanner();
-    lfePannerNode.panningModel = 'HRTF';
-    lfePannerNode.setPosition(0, -1, 0); // Placed at center floor
-    
-    lfeFilterNode.connect(lfeGainNode);
-    lfeGainNode.connect(lfePannerNode);
+    lfeGainNode.gain.setValueAtTime(surroundSubGain, audioCtx.currentTime);
 }
 
 // --- Update Audio Connections ---
@@ -1097,7 +1191,135 @@ function applyEQSettings() {
     }
 }
 
-// Preset Gains: [Bass, Low-Mid, Mid, High-Mid, Treble]
+// --- 5 NEW 3D SPATIAL AUDIO EFFECTS PROCESSORS ---
+
+// 1. 3D Helix Altitude (Spiral Orbit + Elevation)
+function processHelixEffect(time) {
+    if (!isHelixEnabled) return;
+    
+    const nowTime = time || performance.now();
+    const delta = Math.min((nowTime - lastFrameTime) / 1000, 0.1);
+    lastFrameTime = nowTime;
+    
+    helixAngle += helixSpeed * Math.PI * 2 * delta;
+    if (helixAngle > Math.PI * 2) helixAngle -= Math.PI * 2;
+    
+    const radiusMeters = 3.5;
+    const x = Math.sin(helixAngle) * radiusMeters;
+    const z = -Math.cos(helixAngle) * radiusMeters;
+    const y = Math.sin(helixAngle * 0.5) * (helixHeight * 0.5);
+    
+    updateSpatialPosition(x, y, z);
+    if (!document.hidden) drawSpatialPad();
+    
+    if (isHelixEnabled) {
+        requestAnimationFrame(processHelixEffect);
+    }
+}
+
+// 2. 3D Pendulum Swing (Front-Back & Left-Right Arc Oscillation)
+function processPendulumEffect(time) {
+    if (!isPendulumEnabled) return;
+    
+    const nowTime = time || performance.now();
+    const delta = Math.min((nowTime - lastFrameTime) / 1000, 0.1);
+    lastFrameTime = nowTime;
+    
+    pendulumAngle += pendulumSpeed * Math.PI * 2 * delta;
+    if (pendulumAngle > Math.PI * 2) pendulumAngle -= Math.PI * 2;
+    
+    const x = Math.sin(pendulumAngle) * pendulumWidth;
+    const z = Math.cos(pendulumAngle * 2) * (pendulumWidth * 0.4);
+    const y = 0;
+    
+    updateSpatialPosition(x, y, z);
+    if (!document.hidden) drawSpatialPad();
+    
+    if (isPendulumEnabled) {
+        requestAnimationFrame(processPendulumEffect);
+    }
+}
+
+// 3. 3D Doppler Flyby Pass (Velocity Proximity & Pitch Shift)
+function triggerDopplerFlyby() {
+    if (!pannerNode || isDopplerFlying) return;
+    isDopplerFlying = true;
+    
+    const duration = 2.5 / (dopplerSpeed * 0.5);
+    const startTime = performance.now();
+    
+    function stepFlyby(now) {
+        const elapsed = (now - startTime) / 1000;
+        const progress = Math.min(elapsed / duration, 1.0);
+        
+        // Swoop path: from far X: -12, Z: -10 to far X: 12, Z: 10
+        const startX = -12, endX = 12;
+        const startZ = -10, endZ = 10;
+        
+        const x = startX + (endX - startX) * progress;
+        const z = startZ + (endZ - startZ) * progress;
+        const y = Math.sin(progress * Math.PI) * 1.5;
+        
+        updateSpatialPosition(x, y, z);
+        if (!document.hidden) drawSpatialPad();
+        
+        if (progress < 1.0 && isDopplerFlying) {
+            requestAnimationFrame(stepFlyby);
+        } else {
+            isDopplerFlying = false;
+            updateSpatialPosition(0, 0, 0);
+            drawSpatialPad();
+        }
+    }
+    
+    requestAnimationFrame(stepFlyby);
+}
+
+// 4. Hyper-Space 3D Echo Chamber
+function updateEchoChamber() {
+    if (!audioCtx || !djFilterNode) return;
+    
+    if (!echoDelayNode) {
+        echoDelayNode = audioCtx.createDelay(2.0);
+        echoFeedbackGain = audioCtx.createGain();
+        
+        echoDelayNode.delayTime.value = echoTime / 1000;
+        echoFeedbackGain.gain.value = (echoWidth / 100) * 0.6;
+        
+        // Connect 3D echo feedback loop
+        djFilterNode.connect(echoDelayNode);
+        echoDelayNode.connect(echoFeedbackGain);
+        echoFeedbackGain.connect(echoDelayNode);
+        echoFeedbackGain.connect(pannerNode || analyserNode);
+    } else {
+        echoDelayNode.delayTime.setValueAtTime(echoTime / 1000, audioCtx.currentTime);
+        echoFeedbackGain.gain.setValueAtTime(isEchoEnabled ? (echoWidth / 100) * 0.6 : 0, audioCtx.currentTime);
+    }
+}
+
+// 5. 8D Spatial Wobble / Tremolo
+function processWobbleEffect(time) {
+    if (!isWobbleEnabled) return;
+    
+    const nowTime = time || performance.now();
+    const delta = Math.min((nowTime - lastFrameTime) / 1000, 0.1);
+    lastFrameTime = nowTime;
+    
+    wobbleAngle += wobbleRate * Math.PI * 2 * delta;
+    if (wobbleAngle > Math.PI * 2) wobbleAngle -= Math.PI * 2;
+    
+    const depthRatio = wobbleDepth / 100;
+    const wobbleRadius = 2.0 + Math.sin(wobbleAngle) * (3.0 * depthRatio);
+    const x = Math.sin(wobbleAngle * 0.5) * wobbleRadius;
+    const z = -Math.cos(wobbleAngle * 0.5) * wobbleRadius;
+    
+    updateSpatialPosition(x, 0, z);
+    if (!document.hidden) drawSpatialPad();
+    
+    if (isWobbleEnabled) {
+        requestAnimationFrame(processWobbleEffect);
+    }
+}
 const EQ_PRESETS = {
     flat: [0, 0, 0, 0, 0],
     bassboost: [8, 4.5, 0.5, -1, -3.5],
@@ -1415,25 +1637,23 @@ function drawVisualizer() {
         const x2 = centerX + Math.sin(angle) * (innerRadius + barLength);
         const y2 = centerY + Math.cos(angle) * (innerRadius + barLength);
         
-        // Colorful neon gradient depending on angle
+        // Monochrome Black & White visualizer theme
         const grad = visualizerCtx.createLinearGradient(x1, y1, x2, y2);
         
-        // Alternate cyan/magenta/purple neon theme
         if (i % 2 === 0) {
-            grad.addColorStop(0, "rgba(0, 243, 255, 0.4)");
-            grad.addColorStop(1, "rgba(0, 243, 255, 0.9)");
+            grad.addColorStop(0, "rgba(255, 255, 255, 0.4)");
+            grad.addColorStop(1, "rgba(255, 255, 255, 0.95)");
         } else {
-            grad.addColorStop(0, "rgba(255, 0, 127, 0.4)");
-            grad.addColorStop(1, "rgba(255, 0, 127, 0.9)");
+            grad.addColorStop(0, "rgba(160, 160, 160, 0.3)");
+            grad.addColorStop(1, "rgba(230, 230, 230, 0.9)");
         }
         
         visualizerCtx.strokeStyle = grad;
-        visualizerCtx.lineWidth = 4;
+        visualizerCtx.lineWidth = 3.5;
         visualizerCtx.lineCap = "round";
         
-        // Add neon glow filters to lines
-        visualizerCtx.shadowBlur = 10;
-        visualizerCtx.shadowColor = i % 2 === 0 ? "rgba(0, 243, 255, 0.5)" : "rgba(255, 0, 127, 0.5)";
+        visualizerCtx.shadowBlur = 8;
+        visualizerCtx.shadowColor = "rgba(255, 255, 255, 0.5)";
         
         visualizerCtx.beginPath();
         visualizerCtx.moveTo(x1, y1);
@@ -1474,10 +1694,9 @@ function drawSpatialPad() {
     elSpatialPadCtx.stroke();
     
     // Draw Listener (Center point - user's head)
-    // Draw neon headphones symbol or custom head circle
-    elSpatialPadCtx.fillStyle = "var(--primary-neon)";
+    elSpatialPadCtx.fillStyle = "#ffffff";
     elSpatialPadCtx.shadowBlur = 15;
-    elSpatialPadCtx.shadowColor = "rgba(0, 243, 255, 0.8)";
+    elSpatialPadCtx.shadowColor = "rgba(255, 255, 255, 0.8)";
     
     elSpatialPadCtx.beginPath();
     elSpatialPadCtx.arc(centerX, centerY, 8, 0, Math.PI * 2);
@@ -1488,86 +1707,187 @@ function drawSpatialPad() {
     elSpatialPadCtx.fillRect(centerX - 12, centerY - 4, 3, 8); // left cup
     elSpatialPadCtx.fillRect(centerX + 9, centerY - 4, 3, 8);  // right cup
     
-    // Draw Speakers based on Mode
-    const maxCoord = 6.0;
+    // -------------------------------------------------------------
+    // DRAWING 3D EFFECTS TRAJECTORIES AND SPEAKERS
+    // -------------------------------------------------------------
     
+    // 1. SURROUND SOUNDSTAGE MODE
     if (isSurroundMode) {
-        // Draw 5 virtual speakers (FL, FR, C, SL, SR)
-        const speakerPositions = [
-            { name: "C", x: 0, z: -2.0 },
-            { name: "FL", x: -2.5, z: -2.5 },
-            { name: "FR", x: 2.5, z: -2.5 },
-            { name: "SL", x: -4.5, z: 2.2 },
-            { name: "SR", x: 4.5, z: 2.2 }
-        ];
+        const spkConfigs = (surroundNodes.length > 0) 
+            ? surroundNodes 
+            : (SURROUND_PRESETS[surroundPreset] || SURROUND_PRESETS["5.1"]);
         
-        speakerPositions.forEach(spk => {
-            const spkX = centerX + (spk.x / maxCoord) * centerX;
-            const spkZ = centerY + (spk.z / maxCoord) * centerY;
+        elSpatialPadCtx.shadowBlur = 0;
+        elSpatialPadCtx.fillStyle = "#ffffff";
+        elSpatialPadCtx.font = "9px 'Outfit', sans-serif";
+        elSpatialPadCtx.textAlign = "left";
+        const modeTitle = `SURROUND: ${surroundPreset.toUpperCase()} (${spkConfigs.length} CHANNELS)`;
+        elSpatialPadCtx.fillText(modeTitle, 12, height - 12);
+        
+        spkConfigs.forEach(spk => {
+            const rawX = spk.x * (surroundNodes.length > 0 ? 1 : surroundWidthScale);
+            const rawZ = spk.z * (surroundNodes.length > 0 ? 1 : surroundWidthScale);
             
-            // Draw glowing projection line to center (user)
-            elSpatialPadCtx.strokeStyle = "rgba(0, 243, 255, 0.18)";
-            elSpatialPadCtx.lineWidth = 1;
+            const spkX = centerX + (rawX / maxCoord) * centerX;
+            const spkZ = centerY + (rawZ / maxCoord) * centerY;
+            
+            // Draw glowing cyan projection line to center (user)
+            elSpatialPadCtx.strokeStyle = "rgba(0, 243, 255, 0.65)";
+            elSpatialPadCtx.lineWidth = 1.5;
+            elSpatialPadCtx.shadowBlur = 8;
+            elSpatialPadCtx.shadowColor = "rgba(0, 243, 255, 0.8)";
             elSpatialPadCtx.beginPath();
             elSpatialPadCtx.moveTo(centerX, centerY);
             elSpatialPadCtx.lineTo(spkX, spkZ);
             elSpatialPadCtx.stroke();
             
-            // Draw speaker circles
-            elSpatialPadCtx.fillStyle = "rgba(155, 81, 224, 0.2)";
-            elSpatialPadCtx.strokeStyle = "var(--tertiary-neon)";
+            // Draw purple/cyan speaker circles
+            elSpatialPadCtx.fillStyle = "rgba(155, 81, 224, 0.35)";
+            elSpatialPadCtx.strokeStyle = "#00f3ff";
             elSpatialPadCtx.lineWidth = 2;
-            elSpatialPadCtx.shadowBlur = 10;
-            elSpatialPadCtx.shadowColor = "rgba(155, 81, 224, 0.6)";
+            elSpatialPadCtx.shadowBlur = 12;
+            elSpatialPadCtx.shadowColor = "rgba(155, 81, 224, 0.9)";
             
             elSpatialPadCtx.beginPath();
-            elSpatialPadCtx.arc(spkX, spkZ, 8, 0, Math.PI * 2);
+            elSpatialPadCtx.arc(spkX, spkZ, 10, 0, Math.PI * 2);
             elSpatialPadCtx.fill();
             elSpatialPadCtx.stroke();
             
             // Draw speaker label
             elSpatialPadCtx.shadowBlur = 0;
             elSpatialPadCtx.fillStyle = "#ffffff";
-            elSpatialPadCtx.font = "8px 'Outfit', sans-serif";
+            elSpatialPadCtx.font = "9px 'Outfit', sans-serif";
             elSpatialPadCtx.textAlign = "center";
             elSpatialPadCtx.textBaseline = "middle";
             elSpatialPadCtx.fillText(spk.name, spkX, spkZ);
         });
-    } else {
-        // Draw Single Speaker Node (Sound source)
+        return;
+    }
+    
+    // 2. 8D AUTO-ORBIT TRAJECTORY
+    if (is8DEnabled) {
+        const radiusMeters = 1.0 + (orbitRadius / 100) * 5.0;
+        const orbitRadiusPx = (radiusMeters / maxCoord) * centerX;
+        
+        elSpatialPadCtx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+        elSpatialPadCtx.lineWidth = 1.5;
+        elSpatialPadCtx.shadowBlur = 0;
+        
+        elSpatialPadCtx.beginPath();
+        elSpatialPadCtx.arc(centerX, centerY, orbitRadiusPx, 0, Math.PI * 2);
+        elSpatialPadCtx.stroke();
+        
+        elSpatialPadCtx.fillStyle = "rgba(255, 255, 255, 0.8)";
+        elSpatialPadCtx.font = "9px 'Outfit', sans-serif";
+        elSpatialPadCtx.textAlign = "left";
+        elSpatialPadCtx.fillText("MODE: 8D AUTO-ORBIT", 12, height - 12);
+    }
+    
+    // 3. 3D HELIX ALTITUDE TRAJECTORY
+    if (isHelixEnabled) {
+        const helixRadiusPx = (3.5 / maxCoord) * centerX;
+        
+        elSpatialPadCtx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+        elSpatialPadCtx.lineWidth = 1.5;
+        elSpatialPadCtx.setLineDash([3, 3]);
+        elSpatialPadCtx.beginPath();
+        elSpatialPadCtx.arc(centerX, centerY, helixRadiusPx, 0, Math.PI * 2);
+        elSpatialPadCtx.stroke();
+        elSpatialPadCtx.setLineDash([]);
+        
+        elSpatialPadCtx.fillStyle = "#ffffff";
+        elSpatialPadCtx.font = "9px 'Outfit', sans-serif";
+        elSpatialPadCtx.textAlign = "left";
+        const heightSign = currentY >= 0 ? "+" : "";
+        elSpatialPadCtx.fillText(`MODE: 3D HELIX ALTITUDE (${heightSign}${currentY.toFixed(1)}m)`, 12, height - 12);
+    }
+    
+    // 4. 3D PENDULUM SWING TRAJECTORY
+    if (isPendulumEnabled) {
+        elSpatialPadCtx.strokeStyle = "rgba(255, 255, 255, 0.35)";
+        elSpatialPadCtx.lineWidth = 1.5;
+        elSpatialPadCtx.beginPath();
+        
+        const arcPoints = 30;
+        for (let i = 0; i <= arcPoints; i++) {
+            const pAngle = (i / arcPoints) * Math.PI * 2;
+            const px = Math.sin(pAngle) * pendulumWidth;
+            const pz = Math.cos(pAngle * 2) * (pendulumWidth * 0.4);
+            
+            const ptX = centerX + (px / maxCoord) * centerX;
+            const ptZ = centerY + (pz / maxCoord) * centerY;
+            
+            if (i === 0) elSpatialPadCtx.moveTo(ptX, ptZ);
+            else elSpatialPadCtx.lineTo(ptX, ptZ);
+        }
+        elSpatialPadCtx.stroke();
+        
+        elSpatialPadCtx.fillStyle = "rgba(255, 255, 255, 0.8)";
+        elSpatialPadCtx.font = "9px 'Outfit', sans-serif";
+        elSpatialPadCtx.textAlign = "left";
+        elSpatialPadCtx.fillText("MODE: 3D PENDULUM SWING", 12, height - 12);
+    }
+    
+    // 5. 3D DOPPLER FLYBY TRAJECTORY
+    if (isDopplerFlying || isDopplerEnabled) {
+        elSpatialPadCtx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+        elSpatialPadCtx.lineWidth = 2;
+        elSpatialPadCtx.beginPath();
+        elSpatialPadCtx.moveTo(10, 10);
+        elSpatialPadCtx.lineTo(width - 10, height - 10);
+        elSpatialPadCtx.stroke();
+        
+        elSpatialPadCtx.fillStyle = "#ffffff";
+        elSpatialPadCtx.font = "9px 'Outfit', sans-serif";
+        elSpatialPadCtx.textAlign = "left";
+        elSpatialPadCtx.fillText("MODE: 3D DOPPLER VELOCITY FLYBY", 12, height - 12);
+    }
+    
+    // 6. 8D SPATIAL WOBBLE RIPPLES
+    if (isWobbleEnabled) {
         const speakerX = centerX + (currentX / maxCoord) * centerX;
         const speakerZ = centerY + (currentZ / maxCoord) * centerY;
         
-        // Draw orbit path if 8D enabled
-        if (is8DEnabled) {
-            elSpatialPadCtx.strokeStyle = "rgba(255, 0, 127, 0.15)";
-            elSpatialPadCtx.lineWidth = 2;
-            elSpatialPadCtx.shadowBlur = 0;
-            
-            const radiusMeters = 1.0 + (orbitRadius / 100) * 5.0;
-            const orbitRadiusPx = (radiusMeters / maxCoord) * centerX;
-            
-            elSpatialPadCtx.beginPath();
-            elSpatialPadCtx.arc(centerX, centerY, orbitRadiusPx, 0, Math.PI * 2);
-            elSpatialPadCtx.stroke();
-        }
-        
-        // Speaker Dot
-        elSpatialPadCtx.fillStyle = "var(--secondary-neon)";
-        elSpatialPadCtx.shadowBlur = 15;
-        elSpatialPadCtx.shadowColor = "rgba(255, 0, 127, 0.8)";
-        
+        const rippleR = 12 + (Math.sin(wobbleAngle) + 1) * 8;
+        elSpatialPadCtx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+        elSpatialPadCtx.lineWidth = 1;
         elSpatialPadCtx.beginPath();
-        elSpatialPadCtx.arc(speakerX, speakerZ, 10, 0, Math.PI * 2);
-        elSpatialPadCtx.fill();
+        elSpatialPadCtx.arc(speakerX, speakerZ, rippleR, 0, Math.PI * 2);
+        elSpatialPadCtx.stroke();
         
-        // Speaker inner core
-        elSpatialPadCtx.fillStyle = "#ffffff";
-        elSpatialPadCtx.shadowBlur = 0;
-        elSpatialPadCtx.beginPath();
-        elSpatialPadCtx.arc(speakerX, speakerZ, 4, 0, Math.PI * 2);
-        elSpatialPadCtx.fill();
+        elSpatialPadCtx.fillStyle = "rgba(255, 255, 255, 0.8)";
+        elSpatialPadCtx.font = "9px 'Outfit', sans-serif";
+        elSpatialPadCtx.textAlign = "left";
+        elSpatialPadCtx.fillText("MODE: 8D SPATIAL WOBBLE", 12, height - 12);
     }
+    
+    // DRAW PRIMARY ACTIVE SPEAKER NODE
+    const speakerX = centerX + (currentX / maxCoord) * centerX;
+    const speakerZ = centerY + (currentZ / maxCoord) * centerY;
+    
+    // Projection line to center user head
+    elSpatialPadCtx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+    elSpatialPadCtx.lineWidth = 1;
+    elSpatialPadCtx.beginPath();
+    elSpatialPadCtx.moveTo(centerX, centerY);
+    elSpatialPadCtx.lineTo(speakerX, speakerZ);
+    elSpatialPadCtx.stroke();
+    
+    // Outer glowing ring
+    elSpatialPadCtx.fillStyle = "#ffffff";
+    elSpatialPadCtx.shadowBlur = 15;
+    elSpatialPadCtx.shadowColor = "rgba(255, 255, 255, 0.9)";
+    
+    elSpatialPadCtx.beginPath();
+    elSpatialPadCtx.arc(speakerX, speakerZ, 10, 0, Math.PI * 2);
+    elSpatialPadCtx.fill();
+    
+    // Inner core
+    elSpatialPadCtx.fillStyle = "#000000";
+    elSpatialPadCtx.shadowBlur = 0;
+    elSpatialPadCtx.beginPath();
+    elSpatialPadCtx.arc(speakerX, speakerZ, 4, 0, Math.PI * 2);
+    elSpatialPadCtx.fill();
 }
 
 // --- Resize Canvas Elements for High DPI screens ---
@@ -1712,23 +2032,110 @@ function setupEventListeners() {
         elBtnResetSpatial.addEventListener("click", resetSpatialPosition);
     }
     
-    // 5.1 Virtual Surround Toggle Button
+    // 5.1 & 7.1 Virtual Surround Toggle & Controls
+    const elToggleSurroundCheck = document.getElementById("toggle-surround");
+    const elSelectSurroundPreset = document.getElementById("select-surround-preset");
+    const elSliderSurroundWidth = document.getElementById("slider-surround-width");
+    const elSliderSurroundSub = document.getElementById("slider-surround-sub");
+    const elSliderSurroundDelay = document.getElementById("slider-surround-delay");
+    const elSliderSurroundCenter = document.getElementById("slider-surround-center");
+
+    const elValSurroundWidth = document.getElementById("val-surround-width");
+    const elValSurroundSub = document.getElementById("val-surround-sub");
+    const elValSurroundDelay = document.getElementById("val-surround-delay");
+    const elValSurroundCenter = document.getElementById("val-surround-center");
+
+    if (elToggleSurroundCheck) {
+        elToggleSurroundCheck.addEventListener("change", () => {
+            initAudioEngine();
+            isSurroundMode = elToggleSurroundCheck.checked;
+            if (elBtnToggleSurround) elBtnToggleSurround.classList.toggle("active", isSurroundMode);
+            
+            if (isSurroundMode && is8DEnabled) {
+                is8DEnabled = false;
+                if (elToggle8d) elToggle8d.checked = false;
+            }
+            
+            initSurroundNodes();
+            updateAudioConnections();
+            drawSpatialPad();
+        });
+    }
+
+    if (elSelectSurroundPreset) {
+        elSelectSurroundPreset.addEventListener("change", () => {
+            surroundPreset = elSelectSurroundPreset.value;
+            if (isSurroundMode) {
+                initSurroundNodes();
+                updateAudioConnections();
+                drawSpatialPad();
+            }
+        });
+    }
+
+    if (elSliderSurroundWidth) {
+        elSliderSurroundWidth.addEventListener("input", () => {
+            const val = parseInt(elSliderSurroundWidth.value);
+            surroundWidthScale = val / 100;
+            if (elValSurroundWidth) elValSurroundWidth.textContent = val + "%";
+            if (isSurroundMode) {
+                initSurroundNodes();
+                updateAudioConnections();
+                drawSpatialPad();
+            }
+        });
+    }
+
+    if (elSliderSurroundSub) {
+        elSliderSurroundSub.addEventListener("input", () => {
+            const val = parseInt(elSliderSurroundSub.value);
+            surroundSubGain = val / 100;
+            if (elValSurroundSub) elValSurroundSub.textContent = val + "%";
+            if (lfeGainNode) lfeGainNode.gain.setValueAtTime(surroundSubGain, audioCtx.currentTime);
+        });
+    }
+
+    if (elSliderSurroundDelay) {
+        elSliderSurroundDelay.addEventListener("input", () => {
+            const val = parseInt(elSliderSurroundDelay.value);
+            surroundRearDelay = val / 1000;
+            if (elValSurroundDelay) elValSurroundDelay.textContent = val + "ms";
+            if (isSurroundMode) {
+                initSurroundNodes();
+                updateAudioConnections();
+            }
+        });
+    }
+
+    if (elSliderSurroundCenter) {
+        elSliderSurroundCenter.addEventListener("input", () => {
+            const val = parseInt(elSliderSurroundCenter.value);
+            surroundCenterGain = val / 100;
+            if (elValSurroundCenter) elValSurroundCenter.textContent = val + "%";
+            if (isSurroundMode) {
+                initSurroundNodes();
+                updateAudioConnections();
+            }
+        });
+    }
+
     if (elBtnToggleSurround) {
         elBtnToggleSurround.addEventListener("click", () => {
             initAudioEngine();
             isSurroundMode = !isSurroundMode;
+            if (elToggleSurroundCheck) elToggleSurroundCheck.checked = isSurroundMode;
             elBtnToggleSurround.classList.toggle("active", isSurroundMode);
             
-            // Turn off 8D mode if enabling surround mode
             if (isSurroundMode && is8DEnabled) {
                 is8DEnabled = false;
-                elToggle8d.checked = false;
+                if (elToggle8d) elToggle8d.checked = false;
             }
             
+            initSurroundNodes();
             updateAudioConnections();
             
             if (isSurroundMode) {
-                elCoordinatesDisplay.textContent = "5.1 Surround";
+                elCoordinatesDisplay.textContent = "Surround Active";
             } else {
                 updateCoordinatesBadge();
             }
@@ -1844,11 +2251,158 @@ function setupEventListeners() {
         }
     });
     
-    // Upload Zones (Drag & Drop + File Uploads)
-    elUploadZone.addEventListener("click", () => elFileInput.click());
-    elFileInput.addEventListener("change", (e) => {
-        handleFileUpload(e.target.files);
-    });
+    // Setup sub-tab navigation for Effects panel
+    setupFxTabs();
+    setupSpatialModeButtons();
+
+    // Bind 5 New 3D Spatial Effects
+    // 1. 3D Helix Altitude
+    const elToggleHelix = document.getElementById("toggle-helix");
+    const elSliderHelixSpeed = document.getElementById("slider-helix-speed");
+    const elSliderHelixHeight = document.getElementById("slider-helix-height");
+    const elValHelixSpeed = document.getElementById("val-helix-speed");
+    const elValHelixHeight = document.getElementById("val-helix-height");
+
+    if (elToggleHelix) {
+        elToggleHelix.addEventListener("change", () => {
+            isHelixEnabled = elToggleHelix.checked;
+            if (isHelixEnabled) {
+                initAudioEngine();
+                lastFrameTime = performance.now();
+                requestAnimationFrame(processHelixEffect);
+            }
+        });
+    }
+    if (elSliderHelixSpeed) {
+        elSliderHelixSpeed.addEventListener("input", () => {
+            helixSpeed = parseFloat(elSliderHelixSpeed.value);
+            if (elValHelixSpeed) elValHelixSpeed.textContent = helixSpeed.toFixed(1) + "Hz";
+        });
+    }
+    if (elSliderHelixHeight) {
+        elSliderHelixHeight.addEventListener("input", () => {
+            helixHeight = parseFloat(elSliderHelixHeight.value);
+            if (elValHelixHeight) elValHelixHeight.textContent = helixHeight.toFixed(1) + "m";
+        });
+    }
+
+    // 2. 3D Pendulum Swing
+    const elTogglePendulum = document.getElementById("toggle-pendulum");
+    const elSliderPendulumSpeed = document.getElementById("slider-pendulum-speed");
+    const elSliderPendulumWidth = document.getElementById("slider-pendulum-width");
+    const elValPendulumSpeed = document.getElementById("val-pendulum-speed");
+    const elValPendulumWidth = document.getElementById("val-pendulum-width");
+
+    if (elTogglePendulum) {
+        elTogglePendulum.addEventListener("change", () => {
+            isPendulumEnabled = elTogglePendulum.checked;
+            if (isPendulumEnabled) {
+                initAudioEngine();
+                lastFrameTime = performance.now();
+                requestAnimationFrame(processPendulumEffect);
+            }
+        });
+    }
+    if (elSliderPendulumSpeed) {
+        elSliderPendulumSpeed.addEventListener("input", () => {
+            pendulumSpeed = parseFloat(elSliderPendulumSpeed.value);
+            if (elValPendulumSpeed) elValPendulumSpeed.textContent = pendulumSpeed.toFixed(1) + "Hz";
+        });
+    }
+    if (elSliderPendulumWidth) {
+        elSliderPendulumWidth.addEventListener("input", () => {
+            pendulumWidth = parseFloat(elSliderPendulumWidth.value);
+            if (elValPendulumWidth) elValPendulumWidth.textContent = pendulumWidth.toFixed(1) + "m";
+        });
+    }
+
+    // 3. 3D Doppler Flyby Pass
+    const elToggleDoppler = document.getElementById("toggle-doppler");
+    const elBtnTriggerDoppler = document.getElementById("btn-trigger-doppler");
+    const elSliderDopplerSpeed = document.getElementById("slider-doppler-speed");
+    const elValDopplerSpeed = document.getElementById("val-doppler-speed");
+
+    if (elToggleDoppler) {
+        elToggleDoppler.addEventListener("change", () => {
+            isDopplerEnabled = elToggleDoppler.checked;
+            if (isDopplerEnabled) {
+                initAudioEngine();
+                triggerDopplerFlyby();
+            }
+        });
+    }
+    if (elBtnTriggerDoppler) {
+        elBtnTriggerDoppler.addEventListener("click", () => {
+            initAudioEngine();
+            triggerDopplerFlyby();
+        });
+    }
+    if (elSliderDopplerSpeed) {
+        elSliderDopplerSpeed.addEventListener("input", () => {
+            dopplerSpeed = parseInt(elSliderDopplerSpeed.value);
+            const labels = ["Slow", "Medium-Slow", "Medium", "Fast", "Ultra-Fast"];
+            if (elValDopplerSpeed) elValDopplerSpeed.textContent = labels[dopplerSpeed - 1] || "Medium";
+        });
+    }
+
+    // 4. Hyper-Space 3D Echo Chamber
+    const elToggleEcho = document.getElementById("toggle-echo");
+    const elSliderEchoTime = document.getElementById("slider-echo-time");
+    const elSliderEchoWidth = document.getElementById("slider-echo-width");
+    const elValEchoTime = document.getElementById("val-echo-time");
+    const elValEchoWidth = document.getElementById("val-echo-width");
+
+    if (elToggleEcho) {
+        elToggleEcho.addEventListener("change", () => {
+            isEchoEnabled = elToggleEcho.checked;
+            initAudioEngine();
+            updateEchoChamber();
+        });
+    }
+    if (elSliderEchoTime) {
+        elSliderEchoTime.addEventListener("input", () => {
+            echoTime = parseInt(elSliderEchoTime.value);
+            if (elValEchoTime) elValEchoTime.textContent = echoTime + "ms";
+            updateEchoChamber();
+        });
+    }
+    if (elSliderEchoWidth) {
+        elSliderEchoWidth.addEventListener("input", () => {
+            echoWidth = parseInt(elSliderEchoWidth.value);
+            if (elValEchoWidth) elValEchoWidth.textContent = echoWidth + "%";
+            updateEchoChamber();
+        });
+    }
+
+    // 5. 8D Spatial Wobble / Tremolo
+    const elToggleWobble = document.getElementById("toggle-wobble");
+    const elSliderWobbleRate = document.getElementById("slider-wobble-rate");
+    const elSliderWobbleDepth = document.getElementById("slider-wobble-depth");
+    const elValWobbleRate = document.getElementById("val-wobble-rate");
+    const elValWobbleDepth = document.getElementById("val-wobble-depth");
+
+    if (elToggleWobble) {
+        elToggleWobble.addEventListener("change", () => {
+            isWobbleEnabled = elToggleWobble.checked;
+            if (isWobbleEnabled) {
+                initAudioEngine();
+                lastFrameTime = performance.now();
+                requestAnimationFrame(processWobbleEffect);
+            }
+        });
+    }
+    if (elSliderWobbleRate) {
+        elSliderWobbleRate.addEventListener("input", () => {
+            wobbleRate = parseFloat(elSliderWobbleRate.value);
+            if (elValWobbleRate) elValWobbleRate.textContent = wobbleRate.toFixed(1) + "Hz";
+        });
+    }
+    if (elSliderWobbleDepth) {
+        elSliderWobbleDepth.addEventListener("input", () => {
+            wobbleDepth = parseInt(elSliderWobbleDepth.value);
+            if (elValWobbleDepth) elValWobbleDepth.textContent = wobbleDepth + "%";
+        });
+    }
     
     // Drag over styling
     elUploadZone.addEventListener("dragover", (e) => {
@@ -1899,6 +2453,92 @@ function setupEventListeners() {
 
     // Resize handler
     window.addEventListener("resize", resizeCanvases);
+}
+
+// --- Effects Sub-Tab Navigation ---
+function setupFxTabs() {
+    const fxBtns = document.querySelectorAll(".fx-tab-btn");
+    const fxContents = document.querySelectorAll(".fx-tab-content");
+    
+    fxBtns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            const targetTab = btn.getAttribute("data-fxtab");
+            fxBtns.forEach(b => b.classList.remove("active"));
+            fxContents.forEach(c => c.classList.remove("active"));
+            
+            btn.classList.add("active");
+            const activeContent = document.getElementById(`fx-tab-${targetTab}`);
+            if (activeContent) {
+                activeContent.classList.add("active");
+            }
+        });
+    });
+}
+
+// --- Quick 3D Spatial Mode Selector Buttons ---
+function setupSpatialModeButtons() {
+    const spBtns = document.querySelectorAll(".spatial-mode-btn");
+    
+    spBtns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            initAudioEngine();
+            const mode = btn.getAttribute("data-spmode");
+            
+            // Reset all modes
+            is8DEnabled = false;
+            isHelixEnabled = false;
+            isPendulumEnabled = false;
+            isDopplerEnabled = false;
+            isSurroundMode = false;
+            
+            const toggle8d = document.getElementById("toggle-8d");
+            const toggleHelix = document.getElementById("toggle-helix");
+            const togglePendulum = document.getElementById("toggle-pendulum");
+            const toggleDoppler = document.getElementById("toggle-doppler");
+            const toggleSurround = document.getElementById("toggle-surround");
+            
+            if (toggle8d) toggle8d.checked = false;
+            if (toggleHelix) toggleHelix.checked = false;
+            if (togglePendulum) togglePendulum.checked = false;
+            if (toggleDoppler) toggleDoppler.checked = false;
+            if (toggleSurround) toggleSurround.checked = false;
+            if (elBtnToggleSurround) elBtnToggleSurround.classList.remove("active");
+            
+            spBtns.forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            
+            lastFrameTime = performance.now();
+            
+            if (mode === "8d") {
+                is8DEnabled = true;
+                if (toggle8d) toggle8d.checked = true;
+                requestAnimationFrame(processOrbitEffect);
+            } else if (mode === "helix") {
+                isHelixEnabled = true;
+                if (toggleHelix) toggleHelix.checked = true;
+                requestAnimationFrame(processHelixEffect);
+            } else if (mode === "pendulum") {
+                isPendulumEnabled = true;
+                if (togglePendulum) togglePendulum.checked = true;
+                requestAnimationFrame(processPendulumEffect);
+            } else if (mode === "doppler") {
+                isDopplerEnabled = true;
+                if (toggleDoppler) toggleDoppler.checked = true;
+                triggerDopplerFlyby();
+            } else if (mode === "surround") {
+                isSurroundMode = true;
+                if (toggleSurround) toggleSurround.checked = true;
+                if (elBtnToggleSurround) elBtnToggleSurround.classList.add("active");
+                initSurroundNodes();
+            } else {
+                // Manual 3D
+                updateSpatialPosition(0, 0, 0);
+            }
+            
+            updateAudioConnections();
+            drawSpatialPad();
+        });
+    });
 }
 
 // --- Mobile Tab Navigation ---
