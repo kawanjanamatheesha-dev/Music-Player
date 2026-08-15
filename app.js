@@ -54,6 +54,8 @@ let reverbWetGain = null;
 let pannerNode = null;
 let analyserNode = null;
 let visualizerDataArray = [];
+let mediaStreamDestination = null;
+let outputAudioElement = null;
 
 // --- 8D & 3D Spatial State ---
 let is8DEnabled = false;
@@ -573,7 +575,29 @@ function initAudioEngine() {
     analyserNode.fftSize = 256;
     const bufferLength = analyserNode.frequencyBinCount;
     visualizerDataArray = new Uint8Array(bufferLength);
-    analyserNode.connect(audioCtx.destination);
+    
+    // Create MediaStreamDestination bridge to force mobile OS background keep-alive
+    try {
+        if (audioCtx.createMediaStreamDestination) {
+            mediaStreamDestination = audioCtx.createMediaStreamDestination();
+            outputAudioElement = document.getElementById("background-audio-output");
+            if (!outputAudioElement) {
+                outputAudioElement = document.createElement("audio");
+                outputAudioElement.id = "background-audio-output";
+                outputAudioElement.setAttribute("playsinline", "");
+                outputAudioElement.setAttribute("webkit-playsinline", "");
+                outputAudioElement.style.display = "none";
+                document.body.appendChild(outputAudioElement);
+            }
+            outputAudioElement.srcObject = mediaStreamDestination.stream;
+            analyserNode.connect(mediaStreamDestination);
+        } else {
+            analyserNode.connect(audioCtx.destination);
+        }
+    } catch (e) {
+        console.warn("MediaStream destination fallback:", e);
+        analyserNode.connect(audioCtx.destination);
+    }
     
     // Dynamically update audio connections (Surround mode / Single Panner mode)
     updateAudioConnections();
@@ -1152,6 +1176,9 @@ function playSongAtIndex(index) {
     }
     
     audioElement.play().then(() => {
+        if (outputAudioElement) {
+            outputAudioElement.play().catch(e => console.log("Output audio play:", e));
+        }
         isPlaying = true;
         // Keep DJ speed if enabled, otherwise reset to normal speed
         audioElement.playbackRate = isDjEnabled ? djSpeed : 1.0;
@@ -1182,10 +1209,14 @@ function handlePlayPause() {
     
     if (isPlaying) {
         audioElement.pause();
+        if (outputAudioElement) outputAudioElement.pause();
         isPlaying = false;
         document.body.classList.remove("is-playing");
     } else {
         audioElement.play();
+        if (outputAudioElement) {
+            outputAudioElement.play().catch(e => console.log("Output audio play:", e));
+        }
         isPlaying = true;
         audioElement.playbackRate = isDjEnabled ? djSpeed : 1.0;
         document.body.classList.add("is-playing");
