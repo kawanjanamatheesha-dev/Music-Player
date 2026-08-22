@@ -3791,10 +3791,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     
     try {
         await initDB();
-        await loadDataFromDB();
     } catch (e) {
-        console.error("IndexedDB load failed. Local song storage is unavailable.", e);
-        // Fallback to demo songs
-        selectPlaylist("demo");
+        console.warn("IndexedDB initialization skipped/failed. Using LocalStorage fallback.", e);
     }
+    
+    // Always load saved data (IndexedDB + LocalStorage Dual Persistence)
+    await loadDataFromDB();
 });
