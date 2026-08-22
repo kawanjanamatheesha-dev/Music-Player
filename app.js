@@ -3658,6 +3658,7 @@ function handleMobileTabClick(btnElement) {
         if (effectsView) effectsView.style.cssText = "";
     }
 }
+window.handleMobileTabClick = handleMobileTabClick;
 
 function setupMobileNavigation() {
     window.addEventListener("resize", () => {
@@ -3701,9 +3702,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     // Draw initial empty spaces
     resizeCanvases();
     
-    // Register Service Worker for offline support
+    // Register Service Worker for offline support (GitHub Pages compatible path)
     if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("sw.js")
+        navigator.serviceWorker.register("./sw.js")
             .then(() => console.log("Aether Service Worker Registered"))
             .catch(err => console.warn("Service worker registration failed:", err));
     }

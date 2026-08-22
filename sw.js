@@ -1,9 +1,11 @@
-const CACHE_NAME = "aether-player-v5";
+const CACHE_NAME = "aether-player-v6";
 const ASSETS = [
-  "index.html",
-  "styles.css",
-  "app.js",
-  "manifest.json"
+  "./",
+  "./index.html",
+  "./styles.css",
+  "./app.js",
+  "./manifest.json",
+  "./app_icon.jpg"
 ];
 
 // Install Service Worker
