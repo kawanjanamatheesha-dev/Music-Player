@@ -3615,84 +3615,77 @@ function setupSpatialModeButtons() {
 }
 
 // --- Mobile Tab Navigation ---
-function setupMobileNavigation() {
+function handleMobileTabClick(btnElement) {
+    const target = btnElement ? btnElement.getAttribute("data-target") : "player";
+    if (!target) return;
+
     const tabs = document.querySelectorAll(".nav-tab");
+    tabs.forEach(t => {
+        if (t === btnElement || t.getAttribute("data-target") === target) {
+            t.classList.add("active");
+        } else {
+            t.classList.remove("active");
+        }
+    });
+
     const sidebar = document.getElementById("sidebar");
     const mainContent = document.getElementById("main-content");
     const playerView = document.getElementById("player-view");
     const effectsView = document.getElementById("effects-view");
-    
-    function switchTab(target) {
-        tabs.forEach(t => {
-            if (t.getAttribute("data-target") === target) {
-                t.classList.add("active");
-            } else {
-                t.classList.remove("active");
-            }
-        });
-        
-        document.body.classList.remove("tab-player", "tab-library", "tab-effects");
-        document.body.classList.add(`tab-${target}`);
-        
-        if (window.innerWidth <= 1024) {
-            if (target === "library") {
-                if (sidebar) sidebar.style.setProperty("display", "flex", "important");
-                if (mainContent) mainContent.style.setProperty("display", "none", "important");
-            } else if (target === "player") {
-                if (sidebar) sidebar.style.setProperty("display", "none", "important");
-                if (mainContent) mainContent.style.setProperty("display", "flex", "important");
-                if (playerView) playerView.style.setProperty("display", "flex", "important");
-                if (effectsView) effectsView.style.setProperty("display", "none", "important");
-            } else if (target === "effects") {
-                if (sidebar) sidebar.style.setProperty("display", "none", "important");
-                if (mainContent) mainContent.style.setProperty("display", "flex", "important");
-                if (playerView) playerView.style.setProperty("display", "none", "important");
-                if (effectsView) effectsView.style.setProperty("display", "flex", "important");
-            }
-            setTimeout(resizeCanvases, 50);
-        } else {
-            // Restore desktop display properties
-            if (sidebar) sidebar.style.removeProperty("display");
-            if (mainContent) mainContent.style.removeProperty("display");
-            if (playerView) playerView.style.removeProperty("display");
-            if (effectsView) effectsView.style.removeProperty("display");
-        }
-    }
 
-    function checkViewport() {
-        if (window.innerWidth <= 1024) {
-            let activeTarget = "player";
-            tabs.forEach(t => {
-                if (t.classList.contains("active")) {
-                    activeTarget = t.getAttribute("data-target") || "player";
-                }
-            });
-            switchTab(activeTarget);
-        } else {
-            if (sidebar) sidebar.style.removeProperty("display");
-            if (mainContent) mainContent.style.removeProperty("display");
-            if (playerView) playerView.style.removeProperty("display");
-            if (effectsView) effectsView.style.removeProperty("display");
-            document.body.classList.remove("tab-player", "tab-library", "tab-effects");
-        }
-    }
-    
-    checkViewport();
-    window.addEventListener("resize", checkViewport);
+    document.body.className = `tab-${target}`;
 
-    tabs.forEach(tab => {
-        const target = tab.getAttribute("data-target");
-        
-        const handleEvent = (e) => {
-            if (e.type === "pointerdown") {
-                e.preventDefault();
+    if (window.innerWidth <= 1024) {
+        if (target === "library") {
+            if (sidebar) sidebar.style.cssText = "display: flex !important; flex-direction: column !important; width: 100vw !important; max-width: 100vw !important; height: 100% !important; overflow-y: auto !important; padding: 20px 16px 80px 16px !important; box-sizing: border-box !important;";
+            if (mainContent) mainContent.style.cssText = "display: none !important;";
+        } else if (target === "player") {
+            if (sidebar) sidebar.style.cssText = "display: none !important;";
+            if (mainContent) mainContent.style.cssText = "display: flex !important; flex-direction: column !important; width: 100vw !important; height: 100% !important;";
+            if (playerView) playerView.style.cssText = "display: flex !important; flex-direction: column !important; width: 100% !important; height: 100% !important; overflow-y: auto !important; padding: 12px 14px 80px 14px !important; box-sizing: border-box !important;";
+            if (effectsView) effectsView.style.cssText = "display: none !important;";
+        } else if (target === "effects") {
+            if (sidebar) sidebar.style.cssText = "display: none !important;";
+            if (mainContent) mainContent.style.cssText = "display: flex !important; flex-direction: column !important; width: 100vw !important; height: 100% !important;";
+            if (playerView) playerView.style.cssText = "display: none !important;";
+            if (effectsView) effectsView.style.cssText = "display: flex !important; flex-direction: column !important; width: 100% !important; height: 100% !important; overflow-y: auto !important; padding: 20px 16px 80px 16px !important; box-sizing: border-box !important;";
+        }
+        setTimeout(resizeCanvases, 50);
+    } else {
+        if (sidebar) sidebar.style.cssText = "";
+        if (mainContent) mainContent.style.cssText = "";
+        if (playerView) playerView.style.cssText = "";
+        if (effectsView) effectsView.style.cssText = "";
+    }
+}
+
+function setupMobileNavigation() {
+    window.addEventListener("resize", () => {
+        const sidebar = document.getElementById("sidebar");
+        const mainContent = document.getElementById("main-content");
+        const playerView = document.getElementById("player-view");
+        const effectsView = document.getElementById("effects-view");
+
+        if (window.innerWidth > 1024) {
+            document.body.className = "tab-player";
+            if (sidebar) sidebar.style.cssText = "";
+            if (mainContent) mainContent.style.cssText = "";
+            if (playerView) playerView.style.cssText = "";
+            if (effectsView) effectsView.style.cssText = "";
+        } else {
+            const activeTab = document.querySelector(".nav-tab.active");
+            if (activeTab) handleMobileTabClick(activeTab);
+            else {
+                const defaultTab = document.querySelector('.nav-tab[data-target="player"]');
+                if (defaultTab) handleMobileTabClick(defaultTab);
             }
-            if (target) switchTab(target);
-        };
-        
-        tab.addEventListener("pointerdown", handleEvent);
-        tab.addEventListener("click", handleEvent);
+        }
     });
+
+    if (window.innerWidth <= 1024) {
+        const defaultTab = document.querySelector('.nav-tab[data-target="player"]');
+        if (defaultTab) handleMobileTabClick(defaultTab);
+    }
 }
 
 // --- Application Entry Point ---
