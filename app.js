@@ -252,42 +252,75 @@ function initDB() {
     });
 }
 
-// --- Load Playlists and Songs from DB ---
+// --- Load Playlists and Songs from DB / LocalStorage Dual Engine ---
 async function loadDataFromDB() {
-    if (!db) return;
-    
-    // Load Playlists
-    playlists = await new Promise((resolve) => {
-        const transaction = db.transaction("playlists", "readonly");
-        const store = transaction.objectStore("playlists");
-        const req = store.getAll();
-        req.onsuccess = () => resolve(req.result || []);
-        req.onerror = () => resolve([]);
-    });
+    // 1. Try Loading Playlists from IndexedDB
+    if (db) {
+        playlists = await new Promise((resolve) => {
+            try {
+                const transaction = db.transaction("playlists", "readonly");
+                const store = transaction.objectStore("playlists");
+                const req = store.getAll();
+                req.onsuccess = () => resolve(req.result || []);
+                req.onerror = () => resolve([]);
+            } catch (e) {
+                resolve([]);
+            }
+        });
+    }
+
+    // Fallback: If IndexedDB returned empty, restore playlists from localStorage
+    if (!playlists || playlists.length === 0) {
+        try {
+            const savedLocalPlaylists = localStorage.getItem("aether_saved_playlists");
+            if (savedLocalPlaylists) {
+                playlists = JSON.parse(savedLocalPlaylists);
+            }
+        } catch (e) {
+            console.warn("LocalStorage playlist load error:", e);
+        }
+    }
 
     // Ensure we have at least one custom playlist if none exist
-    if (playlists.length === 0) {
-        const defaultPlaylist = { id: "my_library", name: "My Library" };
-        const transaction = db.transaction("playlists", "readwrite");
-        transaction.objectStore("playlists").put(defaultPlaylist);
-        playlists.push(defaultPlaylist);
+    if (!playlists || playlists.length === 0) {
+        playlists = [{ id: "my_library", name: "My Library" }];
     }
-    
-    // Load Songs
-    songs = await new Promise((resolve) => {
-        const transaction = db.transaction("songs", "readonly");
-        const store = transaction.objectStore("songs");
-        const req = store.getAll();
-        req.onsuccess = () => resolve(req.result || []);
-        req.onerror = () => resolve([]);
-    });
-    
+    syncPlaylistsToLocalStorage();
+
+    // 2. Try Loading Songs from IndexedDB
+    if (db) {
+        songs = await new Promise((resolve) => {
+            try {
+                const transaction = db.transaction("songs", "readonly");
+                const store = transaction.objectStore("songs");
+                const req = store.getAll();
+                req.onsuccess = () => resolve(req.result || []);
+                req.onerror = () => resolve([]);
+            } catch (e) {
+                resolve([]);
+            }
+        });
+    }
+
+    // Fallback: If IndexedDB returned empty or was unavailable, restore songs metadata from localStorage
+    if (!songs || songs.length === 0) {
+        try {
+            const savedLocalSongs = localStorage.getItem("aether_saved_songs_meta");
+            if (savedLocalSongs) {
+                songs = JSON.parse(savedLocalSongs);
+            }
+        } catch (e) {
+            console.warn("LocalStorage songs load error:", e);
+        }
+    }
+    if (!songs) songs = [];
+
     // Load active playlist from localStorage if exists
     const savedPlaylistId = localStorage.getItem("aether_current_playlist_id");
     if (savedPlaylistId && (savedPlaylistId === "demo" || playlists.some(p => p.id === savedPlaylistId))) {
         currentPlaylistId = savedPlaylistId;
-    } else if (songs.length > 0) {
-        currentPlaylistId = songs[0].playlistId || playlists[0].id;
+    } else if (playlists.length > 0) {
+        currentPlaylistId = playlists[0].id;
     } else {
         currentPlaylistId = "demo";
     }
@@ -296,52 +329,98 @@ async function loadDataFromDB() {
     selectPlaylist(currentPlaylistId);
 }
 
-// --- Save Playlist to DB ---
+// --- Sync Playlists to LocalStorage Helper ---
+function syncPlaylistsToLocalStorage() {
+    try {
+        localStorage.setItem("aether_saved_playlists", JSON.stringify(playlists));
+    } catch (e) {
+        console.warn("LocalStorage playlist sync failed:", e);
+    }
+}
+
+// --- Sync Songs Metadata to LocalStorage Helper ---
+function syncSongsToLocalStorage() {
+    try {
+        const meta = songs.map(s => ({
+            id: s.id,
+            title: s.title,
+            artist: s.artist,
+            duration: s.duration,
+            playlistId: s.playlistId,
+            mimeType: s.mimeType
+        }));
+        localStorage.setItem("aether_saved_songs_meta", JSON.stringify(meta));
+    } catch (e) {
+        console.warn("LocalStorage songs sync failed:", e);
+    }
+}
+
+// --- Save Playlist to DB & LocalStorage ---
 function savePlaylistToDB(playlist) {
+    syncPlaylistsToLocalStorage();
     return new Promise((resolve) => {
         if (!db) return resolve();
-        const transaction = db.transaction("playlists", "readwrite");
-        const req = transaction.objectStore("playlists").put(playlist);
-        req.onsuccess = () => resolve();
-        req.onerror = () => resolve();
+        try {
+            const transaction = db.transaction("playlists", "readwrite");
+            const req = transaction.objectStore("playlists").put(playlist);
+            req.onsuccess = () => resolve();
+            req.onerror = () => resolve();
+        } catch (e) {
+            resolve();
+        }
     });
 }
 
-// --- Delete Playlist from DB ---
+// --- Delete Playlist from DB & LocalStorage ---
 function deletePlaylistFromDB(playlistId) {
+    syncPlaylistsToLocalStorage();
+    syncSongsToLocalStorage();
     if (!db) return;
-    const transaction = db.transaction(["playlists", "songs"], "readwrite");
-    transaction.objectStore("playlists").delete(playlistId);
-    
-    // Also delete all songs associated with this playlist
-    const songStore = transaction.objectStore("songs");
-    const req = songStore.getAll();
-    req.onsuccess = () => {
-        const allSongs = req.result || [];
-        allSongs.forEach(s => {
-            if (s.playlistId === playlistId) {
-                songStore.delete(s.id);
-            }
-        });
-    };
+    try {
+        const transaction = db.transaction(["playlists", "songs"], "readwrite");
+        transaction.objectStore("playlists").delete(playlistId);
+        
+        const songStore = transaction.objectStore("songs");
+        const req = songStore.getAll();
+        req.onsuccess = () => {
+            const allSongs = req.result || [];
+            allSongs.forEach(s => {
+                if (s.playlistId === playlistId) {
+                    songStore.delete(s.id);
+                }
+            });
+        };
+    } catch (e) {
+        console.warn("IndexedDB delete error:", e);
+    }
 }
 
-// --- Save Song to DB ---
+// --- Save Song to DB & LocalStorage ---
 function saveSongToDB(song) {
-    return new Promise((resolve, reject) => {
-        if (!db) return reject("Database not initialized");
-        const transaction = db.transaction("songs", "readwrite");
-        const request = transaction.objectStore("songs").put(song);
-        request.onsuccess = () => resolve();
-        request.onerror = (e) => reject(e.target.error);
+    syncSongsToLocalStorage();
+    return new Promise((resolve) => {
+        if (!db) return resolve();
+        try {
+            const transaction = db.transaction("songs", "readwrite");
+            const request = transaction.objectStore("songs").put(song);
+            request.onsuccess = () => resolve();
+            request.onerror = () => resolve();
+        } catch (e) {
+            resolve();
+        }
     });
 }
 
-// --- Delete Song from DB ---
+// --- Delete Song from DB & LocalStorage ---
 function deleteSongFromDB(songId) {
+    syncSongsToLocalStorage();
     if (!db) return;
-    const transaction = db.transaction("songs", "readwrite");
-    transaction.objectStore("songs").delete(songId);
+    try {
+        const transaction = db.transaction("songs", "readwrite");
+        transaction.objectStore("songs").delete(songId);
+    } catch (e) {
+        console.warn("IndexedDB delete song error:", e);
+    }
 }
 
 // --- Render Playlist Tabs ---
@@ -419,6 +498,7 @@ function createPlaylist(name) {
     savePlaylistToDB(newPlaylist);
     renderPlaylists();
     selectPlaylist(newPlaylist.id);
+    showToast(`Playlist "${newPlaylist.name}" created permanently!`);
 }
 
 // --- Delete Playlist ---
