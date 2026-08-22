@@ -487,7 +487,15 @@ function selectPlaylist(playlistId) {
     renderSongList();
 }
 
-// --- Create Playlist ---
+// --- Create Playlist Handler & Function ---
+function handleCreatePlaylistClick() {
+    const name = prompt("Enter new Playlist name:");
+    if (name && name.trim()) {
+        createPlaylist(name.trim());
+    }
+}
+window.handleCreatePlaylistClick = handleCreatePlaylistClick;
+
 function createPlaylist(name) {
     if (!name.trim()) return;
     const newPlaylist = {
@@ -2238,6 +2246,12 @@ function handleSpatialPadInput(e) {
 
 // --- Bind Interactive DOM Events ---
 function setupEventListeners() {
+    // Playlist Creation Plus Button
+    const elBtnCreatePlaylist = document.getElementById("btn-create-playlist");
+    if (elBtnCreatePlaylist) {
+        elBtnCreatePlaylist.addEventListener("click", handleCreatePlaylistClick);
+    }
+
     // Playback Buttons
     elPlayPauseBtn.addEventListener("click", handlePlayPause);
     elNextBtn.addEventListener("click", handleNext);
