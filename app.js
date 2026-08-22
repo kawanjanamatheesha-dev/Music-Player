@@ -3617,39 +3617,81 @@ function setupSpatialModeButtons() {
 // --- Mobile Tab Navigation ---
 function setupMobileNavigation() {
     const tabs = document.querySelectorAll(".nav-tab");
+    const sidebar = document.getElementById("sidebar");
+    const mainContent = document.getElementById("main-content");
+    const playerView = document.getElementById("player-view");
+    const effectsView = document.getElementById("effects-view");
     
+    function switchTab(target) {
+        tabs.forEach(t => {
+            if (t.getAttribute("data-target") === target) {
+                t.classList.add("active");
+            } else {
+                t.classList.remove("active");
+            }
+        });
+        
+        document.body.classList.remove("tab-player", "tab-library", "tab-effects");
+        document.body.classList.add(`tab-${target}`);
+        
+        if (window.innerWidth <= 1024) {
+            if (target === "library") {
+                if (sidebar) sidebar.style.setProperty("display", "flex", "important");
+                if (mainContent) mainContent.style.setProperty("display", "none", "important");
+            } else if (target === "player") {
+                if (sidebar) sidebar.style.setProperty("display", "none", "important");
+                if (mainContent) mainContent.style.setProperty("display", "flex", "important");
+                if (playerView) playerView.style.setProperty("display", "flex", "important");
+                if (effectsView) effectsView.style.setProperty("display", "none", "important");
+            } else if (target === "effects") {
+                if (sidebar) sidebar.style.setProperty("display", "none", "important");
+                if (mainContent) mainContent.style.setProperty("display", "flex", "important");
+                if (playerView) playerView.style.setProperty("display", "none", "important");
+                if (effectsView) effectsView.style.setProperty("display", "flex", "important");
+            }
+            setTimeout(resizeCanvases, 50);
+        } else {
+            // Restore desktop display properties
+            if (sidebar) sidebar.style.removeProperty("display");
+            if (mainContent) mainContent.style.removeProperty("display");
+            if (playerView) playerView.style.removeProperty("display");
+            if (effectsView) effectsView.style.removeProperty("display");
+        }
+    }
+
     function checkViewport() {
         if (window.innerWidth <= 1024) {
-            if (!document.body.classList.contains("tab-player") &&
-                !document.body.classList.contains("tab-library") &&
-                !document.body.classList.contains("tab-effects")) {
-                document.body.classList.add("tab-player");
-            }
+            let activeTarget = "player";
+            tabs.forEach(t => {
+                if (t.classList.contains("active")) {
+                    activeTarget = t.getAttribute("data-target") || "player";
+                }
+            });
+            switchTab(activeTarget);
         } else {
+            if (sidebar) sidebar.style.removeProperty("display");
+            if (mainContent) mainContent.style.removeProperty("display");
+            if (playerView) playerView.style.removeProperty("display");
+            if (effectsView) effectsView.style.removeProperty("display");
             document.body.classList.remove("tab-player", "tab-library", "tab-effects");
         }
     }
     
     checkViewport();
     window.addEventListener("resize", checkViewport);
-    
+
     tabs.forEach(tab => {
-        tab.addEventListener("click", () => {
-            // Remove active from all tabs
-            tabs.forEach(t => t.classList.remove("active"));
-            // Add active to clicked tab
-            tab.classList.add("active");
-            
-            // Switch body class
-            const target = tab.getAttribute("data-target");
-            document.body.classList.remove("tab-player", "tab-library", "tab-effects");
-            document.body.classList.add(`tab-${target}`);
-            
-            // If switching to active views with canvases, redraw them
-            if (target === "effects" || target === "player") {
-                setTimeout(resizeCanvases, 100);
+        const target = tab.getAttribute("data-target");
+        
+        const handleEvent = (e) => {
+            if (e.type === "pointerdown") {
+                e.preventDefault();
             }
-        });
+            if (target) switchTab(target);
+        };
+        
+        tab.addEventListener("pointerdown", handleEvent);
+        tab.addEventListener("click", handleEvent);
     });
 }
 
