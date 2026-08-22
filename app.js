@@ -254,9 +254,12 @@ function initDB() {
 
 // --- Load Playlists and Songs from DB / LocalStorage Dual Engine ---
 async function loadDataFromDB() {
-    // 1. Try Loading Playlists from IndexedDB
+    let idbPlaylists = [];
+    let localPlaylists = [];
+
+    // 1. Load Playlists from IndexedDB
     if (db) {
-        playlists = await new Promise((resolve) => {
+        idbPlaylists = await new Promise((resolve) => {
             try {
                 const transaction = db.transaction("playlists", "readonly");
                 const store = transaction.objectStore("playlists");
@@ -269,27 +272,36 @@ async function loadDataFromDB() {
         });
     }
 
-    // Fallback: If IndexedDB returned empty, restore playlists from localStorage
-    if (!playlists || playlists.length === 0) {
-        try {
-            const savedLocalPlaylists = localStorage.getItem("aether_saved_playlists");
-            if (savedLocalPlaylists) {
-                playlists = JSON.parse(savedLocalPlaylists);
-            }
-        } catch (e) {
-            console.warn("LocalStorage playlist load error:", e);
+    // 2. Load Playlists from LocalStorage
+    try {
+        const savedLocalPlaylists = localStorage.getItem("aether_saved_playlists");
+        if (savedLocalPlaylists) {
+            localPlaylists = JSON.parse(savedLocalPlaylists);
         }
+    } catch (e) {
+        console.warn("LocalStorage playlist load error:", e);
     }
 
+    // 3. Merge Playlists without duplicates
+    const pMap = new Map();
+    [...localPlaylists, ...idbPlaylists].forEach(p => {
+        if (p && p.id && p.name) {
+            pMap.set(p.id, p);
+        }
+    });
+    playlists = Array.from(pMap.values());
+
     // Ensure we have at least one custom playlist if none exist
-    if (!playlists || playlists.length === 0) {
+    if (playlists.length === 0) {
         playlists = [{ id: "my_library", name: "My Library" }];
     }
     syncPlaylistsToLocalStorage();
 
-    // 2. Try Loading Songs from IndexedDB
+    // 4. Load Songs from IndexedDB & LocalStorage
+    let idbSongs = [];
+    let localSongs = [];
     if (db) {
-        songs = await new Promise((resolve) => {
+        idbSongs = await new Promise((resolve) => {
             try {
                 const transaction = db.transaction("songs", "readonly");
                 const store = transaction.objectStore("songs");
@@ -301,19 +313,22 @@ async function loadDataFromDB() {
             }
         });
     }
-
-    // Fallback: If IndexedDB returned empty or was unavailable, restore songs metadata from localStorage
-    if (!songs || songs.length === 0) {
-        try {
-            const savedLocalSongs = localStorage.getItem("aether_saved_songs_meta");
-            if (savedLocalSongs) {
-                songs = JSON.parse(savedLocalSongs);
-            }
-        } catch (e) {
-            console.warn("LocalStorage songs load error:", e);
+    try {
+        const savedLocalSongs = localStorage.getItem("aether_saved_songs_meta");
+        if (savedLocalSongs) {
+            localSongs = JSON.parse(savedLocalSongs);
         }
+    } catch (e) {
+        console.warn("LocalStorage songs load error:", e);
     }
-    if (!songs) songs = [];
+
+    const sMap = new Map();
+    [...localSongs, ...idbSongs].forEach(s => {
+        if (s && s.id && s.title) {
+            sMap.set(s.id, s);
+        }
+    });
+    songs = Array.from(sMap.values());
 
     // Load active playlist from localStorage if exists
     const savedPlaylistId = localStorage.getItem("aether_current_playlist_id");
