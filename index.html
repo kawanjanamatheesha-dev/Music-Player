@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Stunning 3D, 8D Music Player with a Multi-band Equalizer and custom local playlists. Works on Windows, Android, and iOS.">
-    <title>Aether 3D & 8D Music Player</title>
+    <title>Matheesha 3D & 8D Spatial Music Player</title>
     
     <!-- Google Fonts: Outfit -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,12 +14,14 @@
     <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- PWA Settings -->
+    <!-- PWA Settings & App Icons -->
     <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/jpeg" href="app_icon.jpg">
+    <link rel="apple-touch-icon" href="app_icon.jpg">
     <meta name="theme-color" content="#0a0a14">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Aether Player">
+    <meta name="apple-mobile-web-app-title" content="Matheesha Audio">
     
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -31,7 +33,7 @@
         <aside id="sidebar">
             <div class="sidebar-header">
                 <i class="fa-solid fa-headphones-simple logo-icon"></i>
-                <h2>Aether</h2>
+                <h2>Matheesha</h2>
             </div>
             
             <div class="section-title">
@@ -51,6 +53,7 @@
                 <p>Drag & Drop or Click</p>
                 <input type="file" id="file-input" multiple accept="audio/*, video/*, .mp3, .m4a, .wav, .mp4, .webm, .aac" style="display: none;">
             </div>
+            <button id="btn-stream-url" class="ctrl-btn-mini" style="width: 100%; margin-top: 6px; padding: 8px; font-size: 13px;"><i class="fa-solid fa-link"></i> Stream Audio URL</button>
             
             <div class="section-title margin-top">
                 <h3>Voice Recorder</h3>
@@ -81,8 +84,15 @@
             <section id="player-view">
                 <div class="current-track-info">
                     <h1 id="track-title">Select a Song</h1>
-                    <p id="track-artist">Aether Spatial Audio Engine</p>
+                    <p id="track-artist">Matheesha Spatial Audio Engine</p>
                     <span id="track-playlist-badge" class="badge">Demo Tracks</span>
+                </div>
+
+                <div class="vis-mode-selector" style="display: flex; gap: 6px; justify-content: center; margin-bottom: 8px;">
+                    <button class="vis-mode-btn active" data-vismode="bars">2D Spectrum</button>
+                    <button class="vis-mode-btn" data-vismode="wave">Waveform</button>
+                    <button class="vis-mode-btn" data-vismode="sphere">3D Cyber Sphere</button>
+                    <button class="vis-mode-btn" data-vismode="grid">3D Particle Grid</button>
                 </div>
 
                 <div class="art-container">
@@ -92,6 +102,11 @@
                     <div id="album-art">
                         <div class="art-disc">
                             <i class="fa-solid fa-compact-disc"></i>
+                        </div>
+                    </div>
+                    <div id="lyrics-overlay" class="lyrics-hidden">
+                        <div id="lyrics-scroll-container">
+                            <p class="lyric-line placeholder">No lyrics loaded. Click <i class="fa-solid fa-align-center"></i> to add LRC.</p>
                         </div>
                     </div>
                     <audio id="audio-screen" playsinline preload="auto" style="display: none;"></audio>
@@ -116,6 +131,12 @@
                         <button id="btn-play-pause" class="ctrl-btn play-btn" title="Play"><i class="fa-solid fa-play"></i></button>
                         <button id="btn-next" class="ctrl-btn" title="Next"><i class="fa-solid fa-forward-step"></i></button>
                         <button id="btn-repeat" class="ctrl-btn" title="Repeat"><i class="fa-solid fa-repeat"></i></button>
+                        <button id="btn-sleep-timer" class="ctrl-btn" title="Sleep Timer" style="position: relative;">
+                            <i class="fa-solid fa-moon"></i>
+                            <span id="sleep-timer-badge" class="badge-mini" style="display:none; position: absolute; top:-4px; right:-4px; font-size:9px; background: #00ffaa; color: #000; border-radius:8px; padding:1px 4px; font-weight:bold;">OFF</span>
+                        </button>
+                        <button id="btn-export-8d" class="ctrl-btn" title="Export 8D Track"><i class="fa-solid fa-file-export"></i></button>
+                        <button id="btn-toggle-lyrics" class="ctrl-btn" title="Lyrics & Karaoke"><i class="fa-solid fa-align-center"></i></button>
                         <button id="btn-wake-lock" class="ctrl-btn" title="Keep Screen Awake"><i class="fa-solid fa-eye"></i></button>
                     </div>
 
@@ -129,15 +150,28 @@
 
             <!-- Right Panel: Audio Effects (3D, 8D, EQ) -->
             <section id="effects-view">
-                <!-- Sub-tab navigation for zero vertical scrolling fit -->
+                <!-- Sub-tab navigation for clean, uncluttered UX -->
                 <div class="fx-tabs-nav">
-                    <button class="fx-tab-btn active" data-fxtab="spatial"><i class="fa-solid fa-cube"></i> Spatial 3D</button>
-                    <button class="fx-tab-btn" data-fxtab="pro"><i class="fa-solid fa-atom"></i> Pro 3D</button>
-                    <button class="fx-tab-btn" data-fxtab="eq"><i class="fa-solid fa-sliders"></i> DJ & EQ</button>
+                    <button class="fx-tab-btn active" data-fxtab="spatial"><i class="fa-solid fa-cube"></i> Spatial 3D Audio</button>
+                    <button class="fx-tab-btn" data-fxtab="eq"><i class="fa-solid fa-sliders"></i> Equalizer & DJ</button>
                 </div>
 
-                <!-- TAB 1: SPATIAL 3D -->
+                <!-- TAB 1: SPATIAL 3D AUDIO -->
                 <div id="fx-tab-spatial" class="fx-tab-content active">
+                    <!-- Hyper-Immersion Experience Hero Card -->
+                    <div class="effects-card" style="background: linear-gradient(135deg, rgba(0, 243, 255, 0.12), rgba(157, 0, 255, 0.15)); border: 1px solid rgba(0, 243, 255, 0.3); margin-bottom: 14px;">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <div class="header-left">
+                                <i class="fa-solid fa-wand-magic-sparkles icon-effect" style="color: #00f3ff; filter: drop-shadow(0 0 8px #00f3ff);"></i>
+                                <h3 style="background: linear-gradient(to right, #ffffff, #00f3ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800; font-size: 15px;">Hyper-Immersion</h3>
+                            </div>
+                            <button id="btn-toggle-immersion" class="dj-sfx-btn" style="background: linear-gradient(135deg, #00f3ff, #8000ff); color: #ffffff; border: none; padding: 6px 14px; font-weight: 700; font-size: 11px; border-radius: 20px; cursor: pointer; box-shadow: 0 0 12px rgba(0, 243, 255, 0.4); transition: var(--transition-smooth);">
+                                <i class="fa-solid fa-headset"></i> Live Inside Song: OFF
+                            </button>
+                        </div>
+                        <p class="card-desc" style="color: #e0e0ff; font-size: 11px; margin-top: 4px;">Combines 360° Soundstage, Concert Acoustics, Sub-Bass Warmth & 3D Sphere Visualizer so you live inside the track.</p>
+                    </div>
+
                     <!-- 8D Orbit Effect Card -->
                     <div class="effects-card">
                         <div class="card-header">
@@ -175,6 +209,20 @@
                             </div>
                             <input type="range" id="slider-reverb" min="0" max="100" step="5" value="30">
                         </div>
+
+                        <div class="slider-group" style="margin-top: 8px;">
+                            <div class="slider-label">
+                                <span>Room Acoustics (Convolver Reverb)</span>
+                            </div>
+                            <select id="select-reverb-room" style="width: 100%; padding: 6px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); color: #ffffff; border: 1px solid var(--border-glass); outline: none; cursor: pointer;">
+                                <option value="none">Disabled (Dry Sound)</option>
+                                <option value="cathedral">Cathedral Hall</option>
+                                <option value="stadium">Stadium Live Concert</option>
+                                <option value="studio">Acoustic Studio</option>
+                                <option value="car">Car Stereo Interior</option>
+                                <option value="concert">Cyber Concert Arena</option>
+                            </select>
+                        </div>
                     </div>
 
                     <!-- 3D Spatial Audio Coordinates -->
@@ -186,6 +234,7 @@
                             </div>
                             <div style="display: flex; gap: 8px; align-items: center;">
                                 <span class="coordinates-badge" id="coordinates-display">X: 0.0, Y: 0.0</span>
+                                <button id="btn-toggle-gyro" class="ctrl-btn-mini" title="Gyroscope 3D Panning"><i class="fa-solid fa-mobile-screen-button"></i></button>
                                 <button id="btn-reset-spatial" class="ctrl-btn-mini" title="Reset Position"><i class="fa-solid fa-arrows-to-dot"></i></button>
                                 <button id="btn-toggle-surround" class="ctrl-btn-mini" title="Virtual Surround"><i class="fa-solid fa-tower-broadcast"></i></button>
                             </div>
@@ -210,6 +259,24 @@
                             
                             <canvas id="spatial-pad"></canvas>
                         </div>
+                    </div>
+
+                    <!-- Apple Spatial Audio Head Tracking Card -->
+                    <div class="effects-card" style="border: 1px solid rgba(0, 255, 170, 0.25);">
+                        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <div class="header-left">
+                                <i class="fa-solid fa-headset icon-effect" style="color: #00ffaa;"></i>
+                                <h3>Apple Head-Tracking 3D</h3>
+                            </div>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <span id="head-angle-badge" class="coordinates-badge" style="background: rgba(0, 255, 170, 0.1); color: #00ffaa; border-color: rgba(0, 255, 170, 0.3);">Head: 0°</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="toggle-head-tracking">
+                                    <span class="slider-toggle"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <p class="card-desc">Simulates Apple Spatial Audio. Turn your head or move mouse to feel music anchored in room space.</p>
                     </div>
 
                     <!-- Customizable 3D Surround & Soundstage Mode Card -->
@@ -272,157 +339,163 @@
                         </div>
                     </div>
 
-                    <!-- NEW EFFECT 1: 3D Helix Altitude (Elevation Orbit) -->
-                    <div class="effects-card">
-                        <div class="card-header">
-                            <div class="header-left">
-                                <i class="fa-solid fa-dna icon-effect"></i>
-                                <h3>3D Helix Altitude (NEW)</h3>
+                    <!-- Collapsible Advanced Experimental 3D FX (Clean Collapsible Accordion) -->
+                    <details class="effects-card" style="cursor: pointer; border: 1px dashed var(--border-glass); background: rgba(20, 20, 30, 0.4);">
+                        <summary style="font-size: 13px; font-weight: 600; color: var(--text-primary); list-style: none; display: flex; justify-content: space-between; align-items: center;">
+                            <span><i class="fa-solid fa-wand-magic-sparkles icon-effect" style="margin-right: 6px; color: var(--primary-neon);"></i> Advanced Experimental 3D FX</span>
+                            <span style="font-size: 10px; color: var(--primary-neon); background: rgba(255,255,255,0.08); padding: 3px 8px; border-radius: 10px;">Click to Expand</span>
+                        </summary>
+                        <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 14px;">
+                            <!-- EFFECT 1: 3D Helix Altitude -->
+                            <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 10px;">
+                                <div class="card-header">
+                                    <div class="header-left">
+                                        <i class="fa-solid fa-dna icon-effect"></i>
+                                        <h3>3D Helix Altitude</h3>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-helix">
+                                        <span class="slider-toggle"></span>
+                                    </label>
+                                </div>
+                                <p class="card-desc">Rotates sound in a 3D helical spiral moving UP (+Y) and DOWN (-Y) in height around your head.</p>
+                                
+                                <div class="slider-group">
+                                    <div class="slider-label">
+                                        <span>Spiral Rotation Speed</span>
+                                        <span id="val-helix-speed">1.2Hz</span>
+                                    </div>
+                                    <input type="range" id="slider-helix-speed" min="0.2" max="4.0" step="0.1" value="1.2">
+                                </div>
+                                <div class="slider-group">
+                                    <div class="slider-label">
+                                        <span>Elevation Height Range</span>
+                                        <span id="val-helix-height">3.5m</span>
+                                    </div>
+                                    <input type="range" id="slider-helix-height" min="1.0" max="8.0" step="0.5" value="3.5">
+                                </div>
                             </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-helix">
-                                <span class="slider-toggle"></span>
-                            </label>
-                        </div>
-                        <p class="card-desc">Rotates sound in a 3D helical spiral moving UP (+Y) and DOWN (-Y) in height around your head.</p>
-                        
-                        <div class="slider-group">
-                            <div class="slider-label">
-                                <span>Spiral Rotation Speed</span>
-                                <span id="val-helix-speed">1.2Hz</span>
-                            </div>
-                            <input type="range" id="slider-helix-speed" min="0.2" max="4.0" step="0.1" value="1.2">
-                        </div>
-                        <div class="slider-group">
-                            <div class="slider-label">
-                                <span>Elevation Height Range</span>
-                                <span id="val-helix-height">3.5m</span>
-                            </div>
-                            <input type="range" id="slider-helix-height" min="1.0" max="8.0" step="0.5" value="3.5">
-                        </div>
-                    </div>
 
-                    <!-- NEW EFFECT 2: 3D Pendulum Swing -->
-                    <div class="effects-card">
-                        <div class="card-header">
-                            <div class="header-left">
-                                <i class="fa-solid fa-arrows-spin icon-effect"></i>
-                                <h3>3D Pendulum Swing (NEW)</h3>
+                            <!-- EFFECT 2: 3D Pendulum Swing -->
+                            <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 10px;">
+                                <div class="card-header">
+                                    <div class="header-left">
+                                        <i class="fa-solid fa-arrows-spin icon-effect"></i>
+                                        <h3>3D Pendulum Swing</h3>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-pendulum">
+                                        <span class="slider-toggle"></span>
+                                    </label>
+                                </div>
+                                <p class="card-desc">Swings sound back and forth in a binaural 3D pendulum arc.</p>
+                                
+                                <div class="slider-group">
+                                    <div class="slider-label">
+                                        <span>Swing Frequency</span>
+                                        <span id="val-pendulum-speed">0.8Hz</span>
+                                    </div>
+                                    <input type="range" id="slider-pendulum-speed" min="0.1" max="3.0" step="0.1" value="0.8">
+                                </div>
+                                <div class="slider-group">
+                                    <div class="slider-label">
+                                        <span>Arc Distance Width</span>
+                                        <span id="val-pendulum-width">4.5m</span>
+                                    </div>
+                                    <input type="range" id="slider-pendulum-width" min="1.0" max="6.0" step="0.5" value="4.5">
+                                </div>
                             </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-pendulum">
-                                <span class="slider-toggle"></span>
-                            </label>
-                        </div>
-                        <p class="card-desc">Swings sound back and forth in a binaural 3D pendulum arc (front-to-back & left-to-right).</p>
-                        
-                        <div class="slider-group">
-                            <div class="slider-label">
-                                <span>Swing Frequency</span>
-                                <span id="val-pendulum-speed">0.8Hz</span>
+
+                            <!-- EFFECT 3: 3D Doppler Flyby Pass -->
+                            <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 10px;">
+                                <div class="card-header">
+                                    <div class="header-left">
+                                        <i class="fa-solid fa-plane-fly icon-effect"></i>
+                                        <h3>3D Doppler Flyby</h3>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-doppler">
+                                        <span class="slider-toggle"></span>
+                                    </label>
+                                </div>
+                                <p class="card-desc">Simulates sound swooping past your ear with Doppler pitch shift.</p>
+                                
+                                <div style="display: flex; gap: 10px; margin-bottom: 12px; align-items: center;">
+                                    <button id="btn-trigger-doppler" class="dj-sfx-btn" style="flex: 1;"><i class="fa-solid fa-bolt"></i> Trigger Flyby Swoop</button>
+                                </div>
+                                <div class="slider-group">
+                                    <div class="slider-label">
+                                        <span>Flyby Velocity</span>
+                                        <span id="val-doppler-speed">Medium</span>
+                                    </div>
+                                    <input type="range" id="slider-doppler-speed" min="1" max="5" step="1" value="3">
+                                </div>
                             </div>
-                            <input type="range" id="slider-pendulum-speed" min="0.1" max="3.0" step="0.1" value="0.8">
-                        </div>
-                        <div class="slider-group">
-                            <div class="slider-label">
-                                <span>Arc Distance Width</span>
-                                <span id="val-pendulum-width">4.5m</span>
+
+                            <!-- EFFECT 4: Hyper-Space 3D Echo Chamber -->
+                            <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 10px;">
+                                <div class="card-header">
+                                    <div class="header-left">
+                                        <i class="fa-solid fa-warehouse icon-effect"></i>
+                                        <h3>Hyper 3D Echo Chamber</h3>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-echo">
+                                        <span class="slider-toggle"></span>
+                                    </label>
+                                </div>
+                                <p class="card-desc">Bounces 3D audio ping-pong reflections off virtual room walls.</p>
+                                
+                                <div class="slider-group">
+                                    <div class="slider-label">
+                                        <span>Echo Delay Time</span>
+                                        <span id="val-echo-time">320ms</span>
+                                    </div>
+                                    <input type="range" id="slider-echo-time" min="50" max="800" step="10" value="320">
+                                </div>
+                                <div class="slider-group">
+                                    <div class="slider-label">
+                                        <span>3D Wall Width</span>
+                                        <span id="val-echo-width">75%</span>
+                                    </div>
+                                    <input type="range" id="slider-echo-width" min="10" max="100" step="5" value="75">
+                                </div>
                             </div>
-                            <input type="range" id="slider-pendulum-width" min="1.0" max="6.0" step="0.5" value="4.5">
+
+                            <!-- EFFECT 5: 8D Spatial Wobble / Tremolo -->
+                            <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 10px;">
+                                <div class="card-header">
+                                    <div class="header-left">
+                                        <i class="fa-solid fa-wave-square icon-effect"></i>
+                                        <h3>8D Spatial Wobble</h3>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="toggle-wobble">
+                                        <span class="slider-toggle"></span>
+                                    </label>
+                                </div>
+                                <p class="card-desc">Pulsates volume & 8D width rhythmically with LFO modulation.</p>
+                                
+                                <div class="slider-group">
+                                    <div class="slider-label">
+                                        <span>Wobble Rate</span>
+                                        <span id="val-wobble-rate">4.0Hz</span>
+                                    </div>
+                                    <input type="range" id="slider-wobble-rate" min="0.5" max="12.0" step="0.5" value="4.0">
+                                </div>
+                                <div class="slider-group">
+                                    <div class="slider-label">
+                                        <span>Modulation Depth</span>
+                                        <span id="val-wobble-depth">60%</span>
+                                    </div>
+                                    <input type="range" id="slider-wobble-depth" min="10" max="100" step="5" value="60">
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                    </details>
                 </div>
 
-                <!-- TAB 2: PRO 3D & SPACE -->
-                <div id="fx-tab-pro" class="fx-tab-content">
-                    <!-- NEW EFFECT 3: 3D Doppler Flyby Pass -->
-                    <div class="effects-card">
-                        <div class="card-header">
-                            <div class="header-left">
-                                <i class="fa-solid fa-plane-fly icon-effect"></i>
-                                <h3>3D Doppler Flyby (NEW)</h3>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-doppler">
-                                <span class="slider-toggle"></span>
-                            </label>
-                        </div>
-                        <p class="card-desc">Simulates a 3D sound source swooping past your ear with Doppler pitch-shift & velocity proximity.</p>
-                        
-                        <div style="display: flex; gap: 10px; margin-bottom: 12px; align-items: center;">
-                            <button id="btn-trigger-doppler" class="dj-sfx-btn" style="flex: 1;"><i class="fa-solid fa-bolt"></i> Trigger Flyby Swoop</button>
-                        </div>
-                        <div class="slider-group">
-                            <div class="slider-label">
-                                <span>Flyby Velocity</span>
-                                <span id="val-doppler-speed">Medium</span>
-                            </div>
-                            <input type="range" id="slider-doppler-speed" min="1" max="5" step="1" value="3">
-                        </div>
-                    </div>
-
-                    <!-- NEW EFFECT 4: Hyper-Space 3D Echo Chamber -->
-                    <div class="effects-card">
-                        <div class="card-header">
-                            <div class="header-left">
-                                <i class="fa-solid fa-warehouse icon-effect"></i>
-                                <h3>Hyper 3D Echo Chamber (NEW)</h3>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-echo">
-                                <span class="slider-toggle"></span>
-                            </label>
-                        </div>
-                        <p class="card-desc">Bounces 3D audio ping-pong reflections off virtual room walls in full spatial directions.</p>
-                        
-                        <div class="slider-group">
-                            <div class="slider-label">
-                                <span>Echo Delay Time</span>
-                                <span id="val-echo-time">320ms</span>
-                            </div>
-                            <input type="range" id="slider-echo-time" min="50" max="800" step="10" value="320">
-                        </div>
-                        <div class="slider-group">
-                            <div class="slider-label">
-                                <span>3D Wall Width</span>
-                                <span id="val-echo-width">75%</span>
-                            </div>
-                            <input type="range" id="slider-echo-width" min="10" max="100" step="5" value="75">
-                        </div>
-                    </div>
-
-                    <!-- NEW EFFECT 5: 8D Spatial Wobble / Tremolo -->
-                    <div class="effects-card">
-                        <div class="card-header">
-                            <div class="header-left">
-                                <i class="fa-solid fa-wave-square icon-effect"></i>
-                                <h3>8D Spatial Wobble (NEW)</h3>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" id="toggle-wobble">
-                                <span class="slider-toggle"></span>
-                            </label>
-                        </div>
-                        <p class="card-desc">Pulsates sound volume & 8D spatial width rhythmically with binaural LFO modulation.</p>
-                        
-                        <div class="slider-group">
-                            <div class="slider-label">
-                                <span>Wobble Rate</span>
-                                <span id="val-wobble-rate">4.0Hz</span>
-                            </div>
-                            <input type="range" id="slider-wobble-rate" min="0.5" max="12.0" step="0.5" value="4.0">
-                        </div>
-                        <div class="slider-group">
-                            <div class="slider-label">
-                                <span>Modulation Depth</span>
-                                <span id="val-wobble-depth">60%</span>
-                            </div>
-                            <input type="range" id="slider-wobble-depth" min="10" max="100" step="5" value="60">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- TAB 3: DJ DECK & EQUALIZER -->
+                <!-- TAB 2: DJ DECK & EQUALIZER -->
                 <div id="fx-tab-eq" class="fx-tab-content">
                     <!-- DJ Deck & FX Panel -->
                     <div class="effects-card">
@@ -447,6 +520,17 @@
                                 <div style="display: flex; gap: 8px; align-items: center;">
                                     <input type="range" id="slider-dj-speed" min="0.5" max="2.0" step="0.05" value="1.0" style="flex: 1;" disabled>
                                     <button id="btn-reset-dj-speed" class="ctrl-btn-mini" title="Reset Speed" disabled><i class="fa-solid fa-rotate-left"></i></button>
+                                </div>
+                            </div>
+
+                            <div class="slider-group">
+                                <div class="slider-label">
+                                    <span>Pitch Shift (Key Transpose)</span>
+                                    <span id="val-pitch-shift">0 semitones</span>
+                                </div>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <input type="range" id="slider-pitch-shift" min="-12" max="12" step="1" value="0" style="flex: 1;" disabled>
+                                    <button id="btn-reset-pitch" class="ctrl-btn-mini" title="Reset Pitch" disabled><i class="fa-solid fa-rotate-left"></i></button>
                                 </div>
                             </div>
 
@@ -481,6 +565,31 @@
                                     <input type="range" id="slider-mic-volume" min="0" max="1.5" step="0.05" value="0.8" disabled>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Vocal Isolator & Karaoke Card -->
+                    <div class="effects-card">
+                        <div class="card-header">
+                            <div class="header-left">
+                                <i class="fa-solid fa-microphone-slash icon-effect"></i>
+                                <h3>Vocal Isolator & Karaoke</h3>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-vocal-remover">
+                                <span class="slider-toggle"></span>
+                            </label>
+                        </div>
+                        <p class="card-desc">DSP Phase Inversion to cancel center-panned vocals or isolate lead vocals.</p>
+                        
+                        <div class="slider-group">
+                            <div class="slider-label">
+                                <span>Isolator Mode</span>
+                            </div>
+                            <select id="select-vocal-mode" style="width: 100%; padding: 6px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); color: #ffffff; border: 1px solid var(--border-glass); outline: none; cursor: pointer;">
+                                <option value="karaoke">Karaoke (Remove Center Vocals)</option>
+                                <option value="vocal_solo">Vocal Solo (Isolate Lead Voice)</option>
+                            </select>
                         </div>
                     </div>
 
@@ -529,12 +638,28 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Sound Profiles & Preset Sharing Card -->
+                    <div class="effects-card">
+                        <div class="card-header">
+                            <div class="header-left">
+                                <i class="fa-solid fa-share-nodes icon-effect"></i>
+                                <h3>Presets & Sound Profiles</h3>
+                            </div>
+                        </div>
+                        <p class="card-desc">Save your custom 3D spatial layout, 8D parameters & EQ curves to file or load profile.</p>
+                        <div style="display: flex; gap: 8px; margin-top: 10px;">
+                            <button id="btn-export-preset" class="dj-sfx-btn" style="flex: 1;"><i class="fa-solid fa-download"></i> Save Profile</button>
+                            <button id="btn-import-preset" class="dj-sfx-btn" style="flex: 1;"><i class="fa-solid fa-upload"></i> Load Profile</button>
+                            <input type="file" id="input-preset-file" accept=".json" style="display: none;">
+                        </div>
+                    </div>
                 </div>
             </section>
         </main>
     </div>
 
-    <!-- Playlist Creator Dialog (Custom modal) -->
+    <!-- Playlist Creator Dialog -->
     <div id="modal-container" class="modal-hidden">
         <div id="modal-content">
             <h3>Create Playlist</h3>
@@ -542,6 +667,70 @@
             <div class="modal-buttons">
                 <button id="modal-cancel">Cancel</button>
                 <button id="modal-submit">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 8D Audio Export Modal -->
+    <div id="modal-export" class="modal-hidden">
+        <div id="modal-content" style="max-width: 420px; text-align: center;">
+            <i class="fa-solid fa-circle-notch fa-spin" id="export-spinner" style="font-size: 36px; color: #00ffaa; margin-bottom: 12px;"></i>
+            <h3 id="export-modal-title">Rendering 8D Spatial Audio...</h3>
+            <p id="export-modal-status" style="font-size: 13px; color: var(--text-secondary); margin: 8px 0 16px 0;">Processing audio channels with spatial audio engine...</p>
+            <div class="progress-container" style="margin-bottom: 16px; width: 100%;">
+                <div id="export-progress-bar" style="width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
+                    <div id="export-progress-fill" style="width: 0%; height: 100%; background: #00ffaa; transition: width 0.1s linear;"></div>
+                </div>
+            </div>
+            <div class="modal-buttons" style="justify-content: center;">
+                <button id="btn-cancel-export">Cancel</button>
+                <a id="btn-download-export" style="display: none; background: #00ffaa; color: #000; padding: 8px 16px; border-radius: 8px; font-weight: bold; text-decoration: none;">Download Audio File</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sleep Timer Modal -->
+    <div id="modal-sleep-timer" class="modal-hidden">
+        <div id="modal-content" style="max-width: 360px;">
+            <h3>Set Sleep Timer</h3>
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">Music will gradually fade out and pause when timer expires.</p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px;">
+                <button class="timer-opt-btn dj-sfx-btn" data-minutes="15">15 Minutes</button>
+                <button class="timer-opt-btn dj-sfx-btn" data-minutes="30">30 Minutes</button>
+                <button class="timer-opt-btn dj-sfx-btn" data-minutes="45">45 Minutes</button>
+                <button class="timer-opt-btn dj-sfx-btn" data-minutes="60">60 Minutes</button>
+            </div>
+            <div class="modal-buttons">
+                <button id="btn-cancel-sleep" style="background: rgba(255, 50, 50, 0.2); color: #ff6b6b;">Turn Off Timer</button>
+                <button id="btn-close-sleep-modal">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stream Audio URL Modal -->
+    <div id="modal-stream-url" class="modal-hidden">
+        <div id="modal-content" style="max-width: 400px;">
+            <h3>Stream Audio URL</h3>
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">Paste direct MP3/AAC or Live Radio Stream URL:</p>
+            <input type="text" id="stream-url-input" placeholder="https://example.com/stream.mp3" style="width: 100%; padding: 8px; border-radius: 8px; background: rgba(255,255,255,0.08); border: 1px solid var(--border-glass); color: #fff; margin-bottom: 12px; font-size: 13px;">
+            <input type="text" id="stream-name-input" placeholder="Stream Title (Optional)" style="width: 100%; padding: 8px; border-radius: 8px; background: rgba(255,255,255,0.08); border: 1px solid var(--border-glass); color: #fff; margin-bottom: 16px; font-size: 13px;">
+            <div class="modal-buttons">
+                <button id="btn-cancel-stream">Cancel</button>
+                <button id="btn-submit-stream">Add Stream</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lyrics Upload Modal -->
+    <div id="modal-lyrics" class="modal-hidden">
+        <div id="modal-content" style="max-width: 450px;">
+            <h3>Load Lyrics (.LRC)</h3>
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">Upload a .lrc file or paste timed lyric lines:</p>
+            <input type="file" id="input-lrc-file" accept=".lrc, .txt" style="margin-bottom: 12px; color: #ccc;">
+            <textarea id="textarea-lrc" placeholder="[00:12.50] Line 1 of song&#10;[00:16.80] Line 2 of song" rows="6" style="width: 100%; padding: 8px; border-radius: 8px; background: rgba(255,255,255,0.08); border: 1px solid var(--border-glass); color: #fff; font-family: monospace; font-size: 12px; margin-bottom: 16px; resize: vertical;"></textarea>
+            <div class="modal-buttons">
+                <button id="btn-cancel-lyrics-modal">Cancel</button>
+                <button id="btn-apply-lyrics">Apply Lyrics</button>
             </div>
         </div>
     </div>

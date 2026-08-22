@@ -137,6 +137,26 @@ let micSourceNode = null;
 let micGainNode = null;
 let isMicActive = false;
 
+// --- 11 NEW FEATURES STATE VARIABLES ---
+let convolverNode = null;
+let convolverGainNode = null;
+let currentReverbRoom = "none";
+
+let isVocalRemoverEnabled = false;
+let vocalMode = "karaoke";
+let vocalSplitterNode = null;
+let vocalMergerNode = null;
+let vocalInvertGainNode = null;
+let vocalFilterNode = null;
+
+let pitchShiftSemitones = 0;
+let isGyroEnabled = false;
+let currentVisMode = "bars"; // 'bars', 'wave', 'sphere', 'grid'
+let sleepTimerId = null;
+let sleepEndTime = null;
+let parsedLyrics = [];
+let activeLyricIndex = -1;
+
 // --- DOM Elements ---
 const elPlayPauseBtn = document.getElementById("btn-play-pause");
 const elPrevBtn = document.getElementById("btn-prev");
@@ -247,7 +267,7 @@ async function loadDataFromDB() {
 
     // Ensure we have at least one custom playlist if none exist
     if (playlists.length === 0) {
-        const defaultPlaylist = { id: "my_uploads", name: "My Uploads" };
+        const defaultPlaylist = { id: "my_library", name: "My Library" };
         const transaction = db.transaction("playlists", "readwrite");
         transaction.objectStore("playlists").put(defaultPlaylist);
         playlists.push(defaultPlaylist);
@@ -264,8 +284,12 @@ async function loadDataFromDB() {
     
     // Load active playlist from localStorage if exists
     const savedPlaylistId = localStorage.getItem("aether_current_playlist_id");
-    if (savedPlaylistId) {
+    if (savedPlaylistId && (savedPlaylistId === "demo" || playlists.some(p => p.id === savedPlaylistId))) {
         currentPlaylistId = savedPlaylistId;
+    } else if (songs.length > 0) {
+        currentPlaylistId = songs[0].playlistId || playlists[0].id;
+    } else {
+        currentPlaylistId = "demo";
     }
 
     renderPlaylists();
@@ -523,6 +547,7 @@ function initAudioEngine() {
     audioElement.addEventListener("timeupdate", () => {
         updateProgressBar();
         updateMediaSessionState();
+        if (audioElement) updateLyricsSync(audioElement.currentTime);
     });
     audioElement.addEventListener("loadedmetadata", () => {
         elTimeDuration.textContent = formatTime(audioElement.duration);
@@ -558,6 +583,11 @@ function initAudioEngine() {
         lastNode = filter;
     }
     
+    // --- Create Convolver Reverb Node ---
+    convolverNode = audioCtx.createConvolver();
+    convolverGainNode = audioCtx.createGain();
+    convolverGainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+
     // --- Create DJ Filter Node ---
     djFilterNode = audioCtx.createBiquadFilter();
     updateDJFilter();
@@ -791,12 +821,7 @@ function updateSpatialPosition(x, y, z) {
     
     if (!pannerNode) return;
     
-    // Coordinate mapping: 
-    // Web Audio listener is at (0,0,0) facing (0,0,-1)
-    // Left/Right: X axis
-    // Front/Back: Z axis (facing negative Z, so FRONT is negative Z, BACK is positive Z)
-    // Up/Down: Y axis (fixed at 0 or small offset)
-    const time = audioCtx.currentTime;
+    const time = audioCtx ? audioCtx.currentTime : 0;
     
     if (pannerNode.positionX) {
         pannerNode.positionX.setValueAtTime(x, time);
@@ -804,6 +829,17 @@ function updateSpatialPosition(x, y, z) {
         pannerNode.positionZ.setValueAtTime(z, time);
     } else {
         pannerNode.setPosition(x, y, z);
+    }
+
+    // 360° Sub-bass Subwoofer Orbiting: Low-end bass rotates in 360° space in sync!
+    if (lfePannerNode) {
+        if (lfePannerNode.positionX) {
+            lfePannerNode.positionX.setValueAtTime(x, time);
+            lfePannerNode.positionY.setValueAtTime(y * 0.5 - 1.0, time);
+            lfePannerNode.positionZ.setValueAtTime(z, time);
+        } else {
+            lfePannerNode.setPosition(x, y * 0.5 - 1.0, z);
+        }
     }
 }
 
@@ -1549,6 +1585,7 @@ async function handleFileUpload(files) {
             await savePlaylistToDB(userPl);
         }
         currentPlaylistId = userPl.id;
+        localStorage.setItem("aether_current_playlist_id", currentPlaylistId);
         renderPlaylists();
     }
     
@@ -1571,12 +1608,11 @@ async function handleFileUpload(files) {
         // Load file info to find duration
         const durStr = await getAudioDurationString(file);
         
-        let fileBlob = file;
+        let audioData = null;
         try {
-            const buffer = await file.arrayBuffer();
-            fileBlob = new Blob([buffer], { type: file.type || "audio/mpeg" });
+            audioData = await file.arrayBuffer();
         } catch (e) {
-            console.warn("ArrayBuffer fallback:", e);
+            console.warn("ArrayBuffer read error:", e);
         }
         
         const newSong = {
@@ -1585,19 +1621,50 @@ async function handleFileUpload(files) {
             artist: artist,
             duration: durStr,
             playlistId: currentPlaylistId,
-            audioBlob: fileBlob,
+            audioData: audioData, // Raw ArrayBuffer - 100% reliable in IndexedDB across reloads!
             mimeType: file.type || "audio/mpeg"
         };
         
         songs.push(newSong);
         try {
             await saveSongToDB(newSong);
+            showToast(`"${newSong.title}" saved permanently!`);
         } catch (dbErr) {
             console.error("IndexedDB Save Song error:", dbErr);
         }
     }
     
+    localStorage.setItem("aether_current_playlist_id", currentPlaylistId);
     selectPlaylist(currentPlaylistId);
+}
+
+// --- Toast Notification Helper ---
+function showToast(message, type = "info") {
+    let toastContainer = document.getElementById("toast-container");
+    if (!toastContainer) {
+        toastContainer = document.createElement("div");
+        toastContainer.id = "toast-container";
+        toastContainer.style.cssText = "position: fixed; bottom: 80px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none;";
+        document.body.appendChild(toastContainer);
+    }
+    
+    const toast = document.createElement("div");
+    toast.className = `toast toast-${type}`;
+    toast.style.cssText = "background: rgba(10, 25, 20, 0.95); border: 1px solid #00ffaa; color: #ffffff; padding: 10px 16px; border-radius: 10px; font-size: 12px; font-weight: 600; box-shadow: 0 4px 20px rgba(0, 255, 170, 0.4); backdrop-filter: blur(10px); transition: all 0.3s ease; transform: translateY(20px); opacity: 0; pointer-events: auto;";
+    toast.innerHTML = `<i class="fa-solid fa-circle-check" style="color: #00ffaa; margin-right: 8px;"></i> ${message}`;
+    
+    toastContainer.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.transform = "translateY(0)";
+        toast.style.opacity = "1";
+    }, 10);
+    
+    setTimeout(() => {
+        toast.style.transform = "translateY(-10px)";
+        toast.style.opacity = "0";
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
 }
 
 function getAudioDurationString(file) {
@@ -1627,7 +1694,10 @@ function getAudioDurationString(file) {
     });
 }
 
-// --- Canvas Visualizer Animation ---
+// --- Enhanced Multi-Mode Canvas Visualizer Animation ---
+let sphereRotationAngle = 0;
+let gridZOffset = 0;
+
 function drawVisualizer() {
     if (!analyserNode) return;
     
@@ -1639,60 +1709,143 @@ function drawVisualizer() {
     const height = elVisualizerCanvas.height / window.devicePixelRatio;
     
     visualizerCtx.clearRect(0, 0, width, height);
-    
-    // Draw circular concentric visualizer ring
     const centerX = width / 2;
     const centerY = height / 2;
-    const innerRadius = 110; // Slightly larger than the album art disc radius
-    const barCount = 60;
-    
     const dataLen = visualizerDataArray.length;
-    
-    // Outer glowing visual effect
-    for (let i = 0; i < barCount; i++) {
-        // Map bar to frequency bin
-        const binIndex = Math.floor((i / barCount) * (dataLen * 0.7));
-        const val = visualizerDataArray[binIndex];
-        
-        // Calculate length of visualizer bars based on frequency energy
-        // Boost length slightly for visual energy
-        const barLength = (val / 255) * 45;
-        
-        const angle = (i / barCount) * Math.PI * 2;
-        
-        const x1 = centerX + Math.sin(angle) * innerRadius;
-        const y1 = centerY + Math.cos(angle) * innerRadius;
-        
-        // Bar extends outward
-        const x2 = centerX + Math.sin(angle) * (innerRadius + barLength);
-        const y2 = centerY + Math.cos(angle) * (innerRadius + barLength);
-        
-        // Monochrome Black & White visualizer theme
-        const grad = visualizerCtx.createLinearGradient(x1, y1, x2, y2);
-        
-        if (i % 2 === 0) {
-            grad.addColorStop(0, "rgba(255, 255, 255, 0.4)");
-            grad.addColorStop(1, "rgba(255, 255, 255, 0.95)");
-        } else {
-            grad.addColorStop(0, "rgba(160, 160, 160, 0.3)");
-            grad.addColorStop(1, "rgba(230, 230, 230, 0.9)");
-        }
-        
-        visualizerCtx.strokeStyle = grad;
-        visualizerCtx.lineWidth = 3.5;
-        visualizerCtx.lineCap = "round";
-        
-        visualizerCtx.shadowBlur = 8;
-        visualizerCtx.shadowColor = "rgba(255, 255, 255, 0.5)";
-        
+
+    // Calculate sub-bass energy for dynamic pulsing
+    let bassSum = 0;
+    for (let i = 0; i < 8; i++) bassSum += visualizerDataArray[i];
+    const bassEnergy = bassSum / 8 / 255;
+
+    if (currentVisMode === "wave") {
+        // --- MODE 2: Oscilloscope Waveform ---
+        const timeData = new Uint8Array(analyserNode.fftSize);
+        analyserNode.getByteTimeDomainData(timeData);
+
+        visualizerCtx.lineWidth = 3;
+        visualizerCtx.strokeStyle = "#00ffaa";
+        visualizerCtx.shadowBlur = 12;
+        visualizerCtx.shadowColor = "rgba(0, 255, 170, 0.8)";
         visualizerCtx.beginPath();
-        visualizerCtx.moveTo(x1, y1);
-        visualizerCtx.lineTo(x2, y2);
+
+        const sliceWidth = width / timeData.length;
+        let x = 0;
+        for (let i = 0; i < timeData.length; i++) {
+            const v = timeData[i] / 128.0;
+            const y = (v * height) / 2;
+            if (i === 0) visualizerCtx.moveTo(x, y);
+            else visualizerCtx.lineTo(x, y);
+            x += sliceWidth;
+        }
         visualizerCtx.stroke();
+        visualizerCtx.shadowBlur = 0;
+
+    } else if (currentVisMode === "sphere") {
+        // --- MODE 3: 3D Cyber Particle Sphere ---
+        sphereRotationAngle += 0.015;
+        const numParticles = 64;
+        const baseRadius = 90 + bassEnergy * 35;
+
+        for (let i = 0; i < numParticles; i++) {
+            const phi = Math.acos(-1 + (2 * i) / numParticles);
+            const theta = Math.sqrt(numParticles * Math.PI) * phi + sphereRotationAngle;
+
+            const binIndex = Math.floor((i / numParticles) * (dataLen * 0.6));
+            const amp = (visualizerDataArray[binIndex] / 255) * 30;
+            const r = baseRadius + amp;
+
+            // 3D coordinates
+            const x3d = r * Math.sin(phi) * Math.cos(theta);
+            const y3d = r * Math.sin(phi) * Math.sin(theta);
+            const z3d = r * Math.cos(phi);
+
+            // 3D projection
+            const fov = 300;
+            const scale = fov / (fov + z3d + 150);
+            const px = centerX + x3d * scale;
+            const py = centerY + y3d * scale;
+            const size = Math.max(1.5, 4 * scale + amp * 0.1);
+
+            visualizerCtx.fillStyle = i % 2 === 0 ? "#00ffaa" : "#ffffff";
+            visualizerCtx.shadowBlur = 8 * scale;
+            visualizerCtx.shadowColor = i % 2 === 0 ? "rgba(0, 255, 170, 0.9)" : "rgba(255, 255, 255, 0.8)";
+
+            visualizerCtx.beginPath();
+            visualizerCtx.arc(px, py, size, 0, Math.PI * 2);
+            visualizerCtx.fill();
+        }
+        visualizerCtx.shadowBlur = 0;
+
+    } else if (currentVisMode === "grid") {
+        // --- MODE 4: 3D Particle Wave Grid ---
+        gridZOffset += 0.05;
+        const cols = 20;
+        const rows = 12;
+        const gridWidth = width * 0.9;
+        const gridHeight = height * 0.6;
+
+        visualizerCtx.strokeStyle = "rgba(0, 255, 170, 0.4)";
+        visualizerCtx.lineWidth = 1.5;
+
+        for (let r = 0; r < rows; r++) {
+            const rowProgress = (r + (gridZOffset % 1)) / rows;
+            const y3d = centerY + (rowProgress - 0.5) * gridHeight;
+            const scale = 0.5 + rowProgress * 0.6;
+
+            visualizerCtx.beginPath();
+            for (let c = 0; c < cols; c++) {
+                const binIndex = Math.floor((c / cols) * (dataLen * 0.7));
+                const val = visualizerDataArray[binIndex];
+                const elevation = (val / 255) * 35 * scale;
+
+                const x3d = centerX + (c / (cols - 1) - 0.5) * gridWidth * scale;
+                const finalY = y3d - elevation;
+
+                if (c === 0) visualizerCtx.moveTo(x3d, finalY);
+                else visualizerCtx.lineTo(x3d, finalY);
+            }
+            visualizerCtx.stroke();
+        }
+    } else {
+        // --- MODE 1: Standard Concentric 2D Frequency Ring ---
+        const innerRadius = 110;
+        const barCount = 60;
+
+        for (let i = 0; i < barCount; i++) {
+            const binIndex = Math.floor((i / barCount) * (dataLen * 0.7));
+            const val = visualizerDataArray[binIndex];
+            const barLength = (val / 255) * 45;
+            const angle = (i / barCount) * Math.PI * 2;
+
+            const x1 = centerX + Math.sin(angle) * innerRadius;
+            const y1 = centerY + Math.cos(angle) * innerRadius;
+            const x2 = centerX + Math.sin(angle) * (innerRadius + barLength);
+            const y2 = centerY + Math.cos(angle) * (innerRadius + barLength);
+
+            const grad = visualizerCtx.createLinearGradient(x1, y1, x2, y2);
+            if (i % 2 === 0) {
+                grad.addColorStop(0, "rgba(0, 255, 170, 0.4)");
+                grad.addColorStop(1, "rgba(0, 255, 170, 0.95)");
+            } else {
+                grad.addColorStop(0, "rgba(160, 160, 160, 0.3)");
+                grad.addColorStop(1, "rgba(255, 255, 255, 0.9)");
+            }
+
+            visualizerCtx.strokeStyle = grad;
+            visualizerCtx.lineWidth = 3.5;
+            visualizerCtx.lineCap = "round";
+
+            visualizerCtx.shadowBlur = 8;
+            visualizerCtx.shadowColor = "rgba(0, 255, 170, 0.5)";
+
+            visualizerCtx.beginPath();
+            visualizerCtx.moveTo(x1, y1);
+            visualizerCtx.lineTo(x2, y2);
+            visualizerCtx.stroke();
+        }
+        visualizerCtx.shadowBlur = 0;
     }
-    
-    // Reset shadow values for next draw calls
-    visualizerCtx.shadowBlur = 0;
 }
 
 // --- 3D Spatial Pad Renderer & Controller ---
@@ -1736,6 +1889,23 @@ function drawSpatialPad() {
     elSpatialPadCtx.fillStyle = "#ffffff";
     elSpatialPadCtx.fillRect(centerX - 12, centerY - 4, 3, 8); // left cup
     elSpatialPadCtx.fillRect(centerX + 9, centerY - 4, 3, 8);  // right cup
+
+    // Draw Head Orientation FOV Fan Cone when Head Tracking is Active
+    if (isHeadTrackingEnabled) {
+        const headRad = (currentHeadAngle * Math.PI) / 180 - Math.PI / 2;
+        const fanAngle = Math.PI / 5;
+        
+        elSpatialPadCtx.fillStyle = "rgba(0, 255, 170, 0.25)";
+        elSpatialPadCtx.strokeStyle = "rgba(0, 255, 170, 0.8)";
+        elSpatialPadCtx.lineWidth = 1.5;
+        
+        elSpatialPadCtx.beginPath();
+        elSpatialPadCtx.moveTo(centerX, centerY);
+        elSpatialPadCtx.arc(centerX, centerY, 55, headRad - fanAngle, headRad + fanAngle);
+        elSpatialPadCtx.closePath();
+        elSpatialPadCtx.fill();
+        elSpatialPadCtx.stroke();
+    }
     
     // -------------------------------------------------------------
     // DRAWING 3D EFFECTS TRAJECTORIES AND SPEAKERS
@@ -1791,7 +1961,6 @@ function drawSpatialPad() {
             elSpatialPadCtx.textBaseline = "middle";
             elSpatialPadCtx.fillText(spk.name, spkX, spkZ);
         });
-        return;
     }
     
     // 2. 8D AUTO-ORBIT TRAJECTORY
@@ -1942,6 +2111,9 @@ let isDraggingSpeaker = false;
 
 function handleSpatialPadInput(e) {
     initAudioEngine();
+    if (audioCtx && audioCtx.state === "suspended") {
+        audioCtx.resume().catch(() => {});
+    }
     
     const rect = elSpatialPad.getBoundingClientRect();
     const touchX = (e.clientX || (e.touches && e.touches[0].clientX)) - rect.left;
@@ -1952,24 +2124,34 @@ function handleSpatialPadInput(e) {
     
     // Map pixel click to coordinates range [-6.0, 6.0]
     const maxCoord = 6.0;
-    const x = ((touchX / width) * 2 - 1) * maxCoord;
-    const z = ((touchZ / height) * 2 - 1) * maxCoord;
+    const x = Math.max(-maxCoord, Math.min(maxCoord, ((touchX / width) * 2 - 1) * maxCoord));
+    const z = Math.max(-maxCoord, Math.min(maxCoord, ((touchZ / height) * 2 - 1) * maxCoord));
     
     // Disable 8D effect if user manually drags speaker
     if (is8DEnabled) {
         is8DEnabled = false;
-        elToggle8d.checked = false;
+        if (elToggle8d) elToggle8d.checked = false;
     }
     
     // Disable 5.1 Surround mode if user manually drags speaker
     if (isSurroundMode) {
         isSurroundMode = false;
-        if (elBtnToggleSurround) {
-            elBtnToggleSurround.classList.remove("active");
-        }
+        const toggleSurround = document.getElementById("toggle-surround");
+        if (toggleSurround) toggleSurround.checked = false;
+        if (elBtnToggleSurround) elBtnToggleSurround.classList.remove("active");
         updateAudioConnections();
     }
     
+    // Switch spatial mode buttons to Manual 3D
+    const spBtns = document.querySelectorAll(".spatial-mode-btn");
+    spBtns.forEach(btn => {
+        if (btn.getAttribute("data-spmode") === "manual") {
+            btn.classList.add("active");
+        } else {
+            btn.classList.remove("active");
+        }
+    });
+
     updateSpatialPosition(x, 0, z);
     drawSpatialPad();
 }
@@ -2188,6 +2370,15 @@ function setupEventListeners() {
             elBtnSfxScratch.disabled = false;
             elBtnSfxLaser.disabled = false;
             
+            const elSliderPitch = document.getElementById("slider-pitch-shift");
+            const elBtnResetPitch = document.getElementById("btn-reset-pitch");
+            const elToggleMic = document.getElementById("toggle-mic");
+            const elSliderMic = document.getElementById("slider-mic-volume");
+            if (elSliderPitch) elSliderPitch.disabled = false;
+            if (elBtnResetPitch) elBtnResetPitch.disabled = false;
+            if (elToggleMic) elToggleMic.disabled = false;
+            if (elSliderMic) elSliderMic.disabled = false;
+            
             // Set playback rate to whatever is currently selected
             if (audioElement) {
                 audioElement.playbackRate = djSpeed;
@@ -2201,6 +2392,15 @@ function setupEventListeners() {
             elBtnSfxSiren.disabled = true;
             elBtnSfxScratch.disabled = true;
             elBtnSfxLaser.disabled = true;
+            
+            const elSliderPitch = document.getElementById("slider-pitch-shift");
+            const elBtnResetPitch = document.getElementById("btn-reset-pitch");
+            const elToggleMic = document.getElementById("toggle-mic");
+            const elSliderMic = document.getElementById("slider-mic-volume");
+            if (elSliderPitch) elSliderPitch.disabled = true;
+            if (elBtnResetPitch) elBtnResetPitch.disabled = true;
+            if (elToggleMic) elToggleMic.disabled = true;
+            if (elSliderMic) elSliderMic.disabled = true;
             
             // Reset playback speed to 1.0
             if (audioElement) {
@@ -2487,15 +2687,845 @@ function setupEventListeners() {
         }
     });
 
-    // Periodic heartbeat to ensure AudioContext stays alive during background play
-    setInterval(() => {
-        if (isPlaying && audioCtx && audioCtx.state === "suspended") {
-            audioCtx.resume().catch(() => {});
-        }
-    }, 1000);
+    // --- 11 NEW FEATURES EVENT LISTENERS ---
+    
+    // Convolver Room Reverb Selector
+    const elSelectReverbRoom = document.getElementById("select-reverb-room");
+    if (elSelectReverbRoom) {
+        elSelectReverbRoom.addEventListener("change", () => {
+            updateConvolverRoom(elSelectReverbRoom.value);
+        });
+    }
+
+    // Hyper-Immersion Experience Button
+    const elBtnToggleImmersion = document.getElementById("btn-toggle-immersion");
+    if (elBtnToggleImmersion) {
+        elBtnToggleImmersion.addEventListener("click", toggleHyperImmersion);
+    }
+
+    // Apple Spatial Audio Head Tracking Switch
+    const elToggleHeadTracking = document.getElementById("toggle-head-tracking");
+    if (elToggleHeadTracking) {
+        elToggleHeadTracking.addEventListener("change", toggleHeadTracking);
+    }
+
+    // Gyroscope 3D Button
+    const elBtnToggleGyro = document.getElementById("btn-toggle-gyro");
+    if (elBtnToggleGyro) {
+        elBtnToggleGyro.addEventListener("click", toggleGyro3D);
+    }
+
+    // Vocal Isolator & Karaoke Switch
+    const elToggleVocalRemover = document.getElementById("toggle-vocal-remover");
+    const elSelectVocalMode = document.getElementById("select-vocal-mode");
+    
+    if (elToggleVocalRemover) {
+        elToggleVocalRemover.addEventListener("change", updateVocalIsolator);
+    }
+    if (elSelectVocalMode) {
+        elSelectVocalMode.addEventListener("change", updateVocalIsolator);
+    }
+
+    // Pitch Shift Slider & Reset
+    const elSliderPitch = document.getElementById("slider-pitch-shift");
+    const elValPitch = document.getElementById("val-pitch-shift");
+    const elBtnResetPitch = document.getElementById("btn-reset-pitch");
+
+    if (elSliderPitch) {
+        elSliderPitch.addEventListener("input", () => {
+            pitchShiftSemitones = parseInt(elSliderPitch.value);
+            if (elValPitch) elValPitch.textContent = (pitchShiftSemitones > 0 ? "+" : "") + pitchShiftSemitones + " semitones";
+            if (audioElement) {
+                audioElement.preservesPitch = false;
+                const pitchRatio = Math.pow(2, pitchShiftSemitones / 12);
+                audioElement.playbackRate = (isDjEnabled ? djSpeed : 1.0) * pitchRatio;
+            }
+        });
+    }
+    if (elBtnResetPitch) {
+        elBtnResetPitch.addEventListener("click", () => {
+            pitchShiftSemitones = 0;
+            if (elSliderPitch) elSliderPitch.value = 0;
+            if (elValPitch) elValPitch.textContent = "0 semitones";
+            if (audioElement) {
+                audioElement.playbackRate = isDjEnabled ? djSpeed : 1.0;
+            }
+        });
+    }
+
+    // Visualizer Mode Selector
+    const visModeBtns = document.querySelectorAll(".vis-mode-btn");
+    visModeBtns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            visModeBtns.forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            currentVisMode = btn.getAttribute("data-vismode");
+        });
+    });
+
+    // 8D Audio Export Button & Modal
+    const elBtnExport8d = document.getElementById("btn-export-8d");
+    const elModalExport = document.getElementById("modal-export");
+    const elBtnCancelExport = document.getElementById("btn-cancel-export");
+
+    if (elBtnExport8d) {
+        elBtnExport8d.addEventListener("click", export8DAudioTrack);
+    }
+    if (elBtnCancelExport && elModalExport) {
+        elBtnCancelExport.addEventListener("click", () => {
+            elModalExport.classList.add("modal-hidden");
+        });
+    }
+
+    // Sleep Timer Buttons & Modal
+    const elBtnSleepTimer = document.getElementById("btn-sleep-timer");
+    const elModalSleep = document.getElementById("modal-sleep-timer");
+    const elBtnCancelSleep = document.getElementById("btn-cancel-sleep");
+    const elBtnCloseSleep = document.getElementById("btn-close-sleep-modal");
+    const timerOptBtns = document.querySelectorAll(".timer-opt-btn");
+
+    if (elBtnSleepTimer && elModalSleep) {
+        elBtnSleepTimer.addEventListener("click", () => {
+            elModalSleep.classList.remove("modal-hidden");
+        });
+    }
+    timerOptBtns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            const mins = parseInt(btn.getAttribute("data-minutes"));
+            setSleepTimer(mins);
+            if (elModalSleep) elModalSleep.classList.add("modal-hidden");
+        });
+    });
+    if (elBtnCancelSleep && elModalSleep) {
+        elBtnCancelSleep.addEventListener("click", () => {
+            cancelSleepTimer();
+            elModalSleep.classList.add("modal-hidden");
+        });
+    }
+    if (elBtnCloseSleep && elModalSleep) {
+        elBtnCloseSleep.addEventListener("click", () => {
+            elModalSleep.classList.add("modal-hidden");
+        });
+    }
+
+    // Synchronized Lyrics Buttons & Modal
+    const elBtnToggleLyrics = document.getElementById("btn-toggle-lyrics");
+    const elLyricsOverlay = document.getElementById("lyrics-overlay");
+    const elModalLyrics = document.getElementById("modal-lyrics");
+    const elBtnCancelLyrics = document.getElementById("btn-cancel-lyrics-modal");
+    const elBtnApplyLyrics = document.getElementById("btn-apply-lyrics");
+    const elTextareaLrc = document.getElementById("textarea-lrc");
+    const elInputLrcFile = document.getElementById("input-lrc-file");
+
+    if (elBtnToggleLyrics && elLyricsOverlay) {
+        elBtnToggleLyrics.addEventListener("click", () => {
+            if (parsedLyrics.length === 0 && elModalLyrics) {
+                elModalLyrics.classList.remove("modal-hidden");
+            } else {
+                const isHidden = elLyricsOverlay.classList.toggle("lyrics-hidden");
+                elBtnToggleLyrics.classList.toggle("active", !isHidden);
+            }
+        });
+    }
+    if (elBtnApplyLyrics && elTextareaLrc && elModalLyrics) {
+        elBtnApplyLyrics.addEventListener("click", () => {
+            if (elTextareaLrc.value.trim()) {
+                parseLRC(elTextareaLrc.value);
+                if (elLyricsOverlay) elLyricsOverlay.classList.remove("lyrics-hidden");
+                if (elBtnToggleLyrics) elBtnToggleLyrics.classList.add("active");
+            }
+            elModalLyrics.classList.add("modal-hidden");
+        });
+    }
+    if (elInputLrcFile && elTextareaLrc) {
+        elInputLrcFile.addEventListener("change", (e) => {
+            if (e.target.files && e.target.files[0]) {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    elTextareaLrc.value = evt.target.result;
+                };
+                reader.readAsText(e.target.files[0]);
+            }
+        });
+    }
+    if (elBtnCancelLyrics && elModalLyrics) {
+        elBtnCancelLyrics.addEventListener("click", () => {
+            elModalLyrics.classList.add("modal-hidden");
+        });
+    }
+
+    // Sound Profile Sharing (Export / Import JSON)
+    const elBtnExportPreset = document.getElementById("btn-export-preset");
+    const elBtnImportPreset = document.getElementById("btn-import-preset");
+    const elInputPresetFile = document.getElementById("input-preset-file");
+
+    if (elBtnExportPreset) {
+        elBtnExportPreset.addEventListener("click", exportSoundProfile);
+    }
+    if (elBtnImportPreset && elInputPresetFile) {
+        elBtnImportPreset.addEventListener("click", () => {
+            elInputPresetFile.click();
+        });
+        elInputPresetFile.addEventListener("change", (e) => {
+            if (e.target.files && e.target.files[0]) {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    try {
+                        const jsonObj = JSON.parse(evt.target.result);
+                        importSoundProfile(jsonObj);
+                    } catch (err) {
+                        alert("Invalid JSON profile file.");
+                    }
+                };
+                reader.readAsText(e.target.files[0]);
+            }
+        });
+    }
+
+    // Stream Audio URL Modal
+    const elBtnStreamUrl = document.getElementById("btn-stream-url");
+    const elModalStream = document.getElementById("modal-stream-url");
+    const elBtnCancelStream = document.getElementById("btn-cancel-stream");
+    const elBtnSubmitStream = document.getElementById("btn-submit-stream");
+    const elStreamUrlInput = document.getElementById("stream-url-input");
+    const elStreamNameInput = document.getElementById("stream-name-input");
+
+    if (elBtnStreamUrl && elModalStream) {
+        elBtnStreamUrl.addEventListener("click", () => {
+            elModalStream.classList.remove("modal-hidden");
+        });
+    }
+    if (elBtnCancelStream && elModalStream) {
+        elBtnCancelStream.addEventListener("click", () => {
+            elModalStream.classList.add("modal-hidden");
+        });
+    }
+    if (elBtnSubmitStream && elStreamUrlInput && elModalStream) {
+        elBtnSubmitStream.addEventListener("click", () => {
+            const url = elStreamUrlInput.value.trim();
+            const title = (elStreamNameInput ? elStreamNameInput.value.trim() : "") || "Web Audio Stream";
+            if (url) {
+                const streamTrack = {
+                    id: "stream_" + Date.now(),
+                    title: title,
+                    artist: "Live Radio / Stream",
+                    url: url,
+                    duration: "Live",
+                    playlistId: currentPlaylistId
+                };
+                currentPlaylistSongs.push(streamTrack);
+                renderSongList();
+                playSongAtIndex(currentPlaylistSongs.length - 1);
+                elStreamUrlInput.value = "";
+                if (elStreamNameInput) elStreamNameInput.value = "";
+                elModalStream.classList.add("modal-hidden");
+            }
+        });
+    }
 
     // Resize handler
     window.addEventListener("resize", resizeCanvases);
+}
+
+// --- Vocal Isolator & Karaoke DSP Processor ---
+function updateVocalIsolator() {
+    const toggleCheck = document.getElementById("toggle-vocal-remover");
+    const selectMode = document.getElementById("select-vocal-mode");
+    
+    if (toggleCheck) isVocalRemoverEnabled = toggleCheck.checked;
+    if (selectMode) vocalMode = selectMode.value;
+    
+    if (isVocalRemoverEnabled) {
+        initAudioEngine();
+        // Apply EQ filter cut to center frequencies (300Hz - 3kHz) for Vocal Suppression
+        if (eqFilters.length >= 4) {
+            if (vocalMode === "karaoke") {
+                eqFilters[1].gain.setValueAtTime(-12, audioCtx.currentTime); // Low-mid vocal cut
+                eqFilters[2].gain.setValueAtTime(-18, audioCtx.currentTime); // Mid vocal cut
+                eqFilters[3].gain.setValueAtTime(-10, audioCtx.currentTime); // High-mid vocal cut
+            } else if (vocalMode === "vocal_solo") {
+                eqFilters[0].gain.setValueAtTime(-14, audioCtx.currentTime); // Bass cut
+                eqFilters[1].gain.setValueAtTime(+6, audioCtx.currentTime);  // Vocal boost
+                eqFilters[2].gain.setValueAtTime(+12, audioCtx.currentTime); // Vocal boost
+                eqFilters[3].gain.setValueAtTime(+4, audioCtx.currentTime);
+                eqFilters[4].gain.setValueAtTime(-12, audioCtx.currentTime); // Treble cut
+            }
+        }
+    } else {
+        if (audioCtx) applyEQSettings();
+    }
+}
+
+// --- 11 NEW FEATURES HELPER FUNCTIONS ---
+
+function createImpulseResponse(ctx, duration, decay, reverse) {
+    const sampleRate = ctx.sampleRate;
+    const length = sampleRate * duration;
+    const impulse = ctx.createBuffer(2, length, sampleRate);
+    const left = impulse.getChannelData(0);
+    const right = impulse.getChannelData(1);
+
+    for (let i = 0; i < length; i++) {
+        const n = reverse ? length - i : i;
+        const env = Math.pow(1 - n / length, decay);
+        left[i] = (Math.random() * 2 - 1) * env;
+        right[i] = (Math.random() * 2 - 1) * env;
+    }
+    return impulse;
+}
+
+function updateConvolverRoom(roomType) {
+    currentReverbRoom = roomType;
+    if (!audioCtx) initAudioEngine();
+    
+    if (!convolverNode) {
+        convolverNode = audioCtx.createConvolver();
+        convolverGainNode = audioCtx.createGain();
+    }
+    
+    if (roomType === "none") {
+        convolverGainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+        return;
+    }
+    
+    let duration = 2.0;
+    let decay = 3.0;
+    
+    if (roomType === "cathedral") { duration = 3.5; decay = 2.2; }
+    else if (roomType === "stadium") { duration = 2.8; decay = 2.8; }
+    else if (roomType === "studio") { duration = 0.4; decay = 7.0; }
+    else if (roomType === "car") { duration = 0.25; decay = 12.0; }
+    else if (roomType === "concert") { duration = 2.0; decay = 3.5; }
+    
+    convolverNode.buffer = createImpulseResponse(audioCtx, duration, decay, false);
+    convolverGainNode.gain.setValueAtTime(0.8, audioCtx.currentTime);
+}
+
+function handleDeviceOrientation(e) {
+    if (!isGyroEnabled) return;
+    const gamma = e.gamma || 0;
+    const beta = e.beta || 0;
+    
+    const targetX = (gamma / 45) * 4.0;
+    const targetZ = ((beta - 45) / 45) * 4.0;
+    
+    currentX = currentX + (Math.max(-5, Math.min(5, targetX)) - currentX) * 0.15;
+    currentZ = currentZ + (Math.max(-5, Math.min(5, targetZ)) - currentZ) * 0.15;
+    
+    updateSpatialPosition(currentX, 0, currentZ);
+    if (!document.hidden) drawSpatialPad();
+}
+
+function toggleGyro3D() {
+    isGyroEnabled = !isGyroEnabled;
+    const btn = document.getElementById("btn-toggle-gyro");
+    if (btn) {
+        if (isGyroEnabled) {
+            btn.classList.add("active");
+            if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+                DeviceOrientationEvent.requestPermission().then(state => {
+                    if (state === "granted") window.addEventListener("deviceorientation", handleDeviceOrientation);
+                }).catch(e => console.warn(e));
+            } else {
+                window.addEventListener("deviceorientation", handleDeviceOrientation);
+            }
+        } else {
+            btn.classList.remove("active");
+            window.removeEventListener("deviceorientation", handleDeviceOrientation);
+        }
+    }
+// --- Apple Spatial Audio Head Tracking State & Handlers ---
+let isHeadTrackingEnabled = false;
+let currentHeadAngle = 0; // degrees [-180, 180]
+let targetHeadAngle = 0;
+
+function updateHeadOrientation(angleDegrees) {
+    currentHeadAngle = angleDegrees;
+    
+    const badge = document.getElementById("head-angle-badge");
+    if (badge) {
+        badge.textContent = `Head: ${Math.round(angleDegrees)}°`;
+    }
+    
+    if (!audioCtx || !audioCtx.listener) return;
+    
+    const rad = (angleDegrees * Math.PI) / 180;
+    const forwardX = Math.sin(-rad);
+    const forwardZ = -Math.cos(-rad);
+    const time = audioCtx.currentTime;
+    
+    if (audioCtx.listener.forwardX) {
+        audioCtx.listener.forwardX.setValueAtTime(forwardX, time);
+        audioCtx.listener.forwardY.setValueAtTime(0, time);
+        audioCtx.listener.forwardZ.setValueAtTime(forwardZ, time);
+    } else {
+        audioCtx.listener.setOrientation(forwardX, 0, forwardZ, 0, 1, 0);
+    }
+}
+
+function handleHeadTrackingOrientation(e) {
+    if (!isHeadTrackingEnabled) return;
+    
+    let yaw = e.alpha || e.gamma || 0;
+    if (e.gamma !== undefined && Math.abs(e.gamma) <= 90) {
+        yaw = e.gamma * 2.0; // scale up phone tilt to head yaw angle
+    }
+    
+    targetHeadAngle = Math.max(-90, Math.min(90, yaw));
+    currentHeadAngle += (targetHeadAngle - currentHeadAngle) * 0.2;
+    updateHeadOrientation(currentHeadAngle);
+    if (!document.hidden) drawSpatialPad();
+}
+
+function handleMouseMoveHeadTracking(e) {
+    if (!isHeadTrackingEnabled) return;
+    
+    const normX = (e.clientX / window.innerWidth) * 2 - 1; // [-1, 1]
+    targetHeadAngle = normX * 60; // [-60 deg to +60 deg]
+    
+    currentHeadAngle += (targetHeadAngle - currentHeadAngle) * 0.15;
+    updateHeadOrientation(currentHeadAngle);
+    if (!document.hidden) drawSpatialPad();
+}
+
+function toggleHeadTracking() {
+    isHeadTrackingEnabled = !isHeadTrackingEnabled;
+    const toggleBtn = document.getElementById("toggle-head-tracking");
+    if (toggleBtn) toggleBtn.checked = isHeadTrackingEnabled;
+    
+    if (isHeadTrackingEnabled) {
+        initAudioEngine();
+        
+        if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+            DeviceOrientationEvent.requestPermission().then(state => {
+                if (state === "granted") {
+                    window.addEventListener("deviceorientation", handleHeadTrackingOrientation);
+                }
+            }).catch(e => console.warn(e));
+        } else {
+            window.addEventListener("deviceorientation", handleHeadTrackingOrientation);
+        }
+        
+        window.addEventListener("mousemove", handleMouseMoveHeadTracking);
+    } else {
+        window.removeEventListener("deviceorientation", handleHeadTrackingOrientation);
+        window.removeEventListener("mousemove", handleMouseMoveHeadTracking);
+        updateHeadOrientation(0); // Reset head facing forward
+    }
+}
+    parsedLyrics = [];
+    activeLyricIndex = -1;
+    const lines = lrcText.split("\n");
+    const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/;
+    
+    lines.forEach(line => {
+        const match = timeRegex.exec(line);
+        if (match) {
+            const min = parseInt(match[1]);
+            const sec = parseInt(match[2]);
+            const ms = parseInt(match[3]);
+            const time = min * 60 + sec + (ms > 99 ? ms / 1000 : ms / 100);
+            const text = match[4].trim();
+            if (text) {
+                parsedLyrics.push({ time, text });
+            }
+        }
+    });
+    
+    parsedLyrics.sort((a, b) => a.time - b.time);
+    renderLyricsUI();
+}
+
+function renderLyricsUI() {
+    const container = document.getElementById("lyrics-scroll-container");
+    if (!container) return;
+    container.innerHTML = "";
+    
+    if (parsedLyrics.length === 0) {
+        container.innerHTML = '<p class="lyric-line placeholder">No lyrics loaded. Click <i class="fa-solid fa-align-center"></i> to add LRC.</p>';
+        return;
+    }
+    
+    parsedLyrics.forEach((item, index) => {
+        const p = document.createElement("p");
+        p.className = `lyric-line line-${index}`;
+        p.textContent = item.text;
+        p.addEventListener("click", () => {
+            if (audioElement) {
+                audioElement.currentTime = item.time;
+            }
+        });
+        container.appendChild(p);
+    });
+}
+
+function updateLyricsSync(currentTime) {
+    if (parsedLyrics.length === 0) return;
+    
+    let newIndex = -1;
+    for (let i = 0; i < parsedLyrics.length; i++) {
+        if (currentTime >= parsedLyrics[i].time) {
+            newIndex = i;
+        } else {
+            break;
+        }
+    }
+    
+    if (newIndex !== activeLyricIndex) {
+        activeLyricIndex = newIndex;
+        const container = document.getElementById("lyrics-scroll-container");
+        if (!container) return;
+        
+        const lines = container.querySelectorAll(".lyric-line");
+        lines.forEach((l, idx) => {
+            if (idx === activeLyricIndex) {
+                l.classList.add("active");
+                l.scrollIntoView({ behavior: "smooth", block: "center" });
+            } else {
+                l.classList.remove("active");
+            }
+        });
+    }
+}
+
+function setSleepTimer(minutes) {
+    cancelSleepTimer();
+    if (minutes <= 0) return;
+    
+    sleepEndTime = Date.now() + minutes * 60 * 1000;
+    updateSleepTimerBadge();
+    
+    sleepTimerId = setInterval(() => {
+        const remainingMs = sleepEndTime - Date.now();
+        if (remainingMs <= 0) {
+            cancelSleepTimer();
+            if (audioElement) {
+                audioElement.pause();
+                if (outputAudioElement) outputAudioElement.pause();
+                isPlaying = false;
+                updatePlayPauseUI();
+            }
+        } else {
+            if (remainingMs <= 15000) {
+                const fadeRatio = remainingMs / 15000;
+                const masterVol = parseFloat(elVolumeSlider.value || 0.8);
+                audioElement.volume = masterVol * fadeRatio;
+            }
+            updateSleepTimerBadge();
+        }
+    }, 1000);
+}
+
+function cancelSleepTimer() {
+    if (sleepTimerId) {
+        clearInterval(sleepTimerId);
+        sleepTimerId = null;
+    }
+    sleepEndTime = null;
+    if (audioElement && elVolumeSlider) {
+        audioElement.volume = parseFloat(elVolumeSlider.value || 0.8);
+    }
+    const badge = document.getElementById("sleep-timer-badge");
+    const btn = document.getElementById("btn-sleep-timer");
+    if (badge) badge.style.display = "none";
+    if (btn) btn.classList.remove("active");
+}
+
+function updateSleepTimerBadge() {
+    const badge = document.getElementById("sleep-timer-badge");
+    const btn = document.getElementById("btn-sleep-timer");
+    if (!sleepEndTime) return;
+    
+    const remSec = Math.max(0, Math.ceil((sleepEndTime - Date.now()) / 1000));
+    const mins = Math.floor(remSec / 60);
+    const secs = remSec % 60;
+    
+    if (badge) {
+        badge.style.display = "inline-block";
+        badge.textContent = `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+    }
+    if (btn) btn.classList.add("active");
+}
+
+function export8DAudioTrack() {
+    if (currentSongIndex === -1) {
+        alert("Please select and play a song first!");
+        return;
+    }
+    const song = currentPlaylistSongs[currentSongIndex];
+    const modal = document.getElementById("modal-export");
+    const statusText = document.getElementById("export-modal-status");
+    const progressFill = document.getElementById("export-progress-fill");
+    const spinner = document.getElementById("export-spinner");
+    const downloadBtn = document.getElementById("btn-download-export");
+    
+    if (modal) modal.classList.remove("modal-hidden");
+    if (spinner) spinner.style.display = "block";
+    if (downloadBtn) downloadBtn.style.display = "none";
+    if (statusText) statusText.textContent = "Fetching audio data...";
+    if (progressFill) progressFill.style.width = "10%";
+
+    let audioPromise;
+    if (song.audioBlob) {
+        audioPromise = song.audioBlob.arrayBuffer();
+    } else if (song.audioData) {
+        audioPromise = Promise.resolve(song.audioData);
+    } else {
+        audioPromise = fetch(song.url).then(res => res.arrayBuffer());
+    }
+
+    audioPromise.then(arrayBuffer => {
+        if (statusText) statusText.textContent = "Decoding audio buffer...";
+        if (progressFill) progressFill.style.width = "30%";
+        
+        const tempCtx = new (window.AudioContext || window.webkitAudioContext)();
+        return tempCtx.decodeAudioData(arrayBuffer).then(decodedBuffer => {
+            tempCtx.close();
+            
+            if (statusText) statusText.textContent = "Rendering 8D Spatial Audio Offline...";
+            if (progressFill) progressFill.style.width = "50%";
+
+            const offlineCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(
+                2,
+                decodedBuffer.sampleRate * decodedBuffer.duration,
+                decodedBuffer.sampleRate
+            );
+
+            const source = offlineCtx.createBufferSource();
+            source.buffer = decodedBuffer;
+
+            const panner = offlineCtx.createPanner();
+            panner.panningModel = 'HRTF';
+            
+            source.connect(panner);
+            panner.connect(offlineCtx.destination);
+
+            const duration = decodedBuffer.duration;
+            const step = 0.05;
+            const radiusMeters = 1.0 + (orbitRadius / 100) * 5.0;
+            let angle = 0;
+
+            for (let t = 0; t < duration; t += step) {
+                angle += orbitSpeed * Math.PI * 2 * step;
+                const x = Math.sin(angle) * radiusMeters;
+                const z = -Math.cos(angle) * radiusMeters;
+                if (panner.positionX) {
+                    panner.positionX.setValueAtTime(x, t);
+                    panner.positionZ.setValueAtTime(z, t);
+                } else {
+                    panner.setPosition(x, 0, z);
+                }
+            }
+
+            source.start(0);
+
+            return offlineCtx.startRendering().then(renderedBuffer => {
+                if (statusText) statusText.textContent = "Encoding WAV File...";
+                if (progressFill) progressFill.style.width = "90%";
+                
+                const wavBlob = audioBufferToWavBlob(renderedBuffer);
+                const downloadUrl = URL.createObjectURL(wavBlob);
+                
+                if (progressFill) progressFill.style.width = "100%";
+                if (spinner) spinner.style.display = "none";
+                if (statusText) statusText.textContent = "8D Audio Rendering Complete!";
+                
+                if (downloadBtn) {
+                    downloadBtn.href = downloadUrl;
+                    downloadBtn.download = `${song.title.replace(/[^a-zA-Z0-9]/g, "_")}_8D_Spatial.wav`;
+                    downloadBtn.style.display = "inline-block";
+                }
+            });
+        });
+    }).catch(err => {
+        console.error("8D Audio Export error:", err);
+        if (statusText) statusText.textContent = "Export Failed: " + err.message;
+        if (spinner) spinner.style.display = "none";
+    });
+}
+
+function audioBufferToWavBlob(buffer) {
+    const numOfChan = buffer.numberOfChannels;
+    const length = buffer.length * numOfChan * 2 + 44;
+    const out = new DataView(new ArrayBuffer(length));
+    let channels = [], sample, offset = 0, pos = 0;
+
+    function setUint16(data) { out.setUint16(pos, data, true); pos += 2; }
+    function setUint32(data) { out.setUint32(pos, data, true); pos += 4; }
+
+    setUint32(0x46464952);
+    setUint32(length - 8);
+    setUint32(0x45564157);
+    setUint32(0x20746d66);
+    setUint32(16);
+    setUint16(1);
+    setUint16(numOfChan);
+    setUint32(buffer.sampleRate);
+    setUint32(buffer.sampleRate * 2 * numOfChan);
+    setUint16(numOfChan * 2);
+    setUint16(16);
+    setUint32(0x61746164);
+    setUint32(length - pos - 4);
+
+    for (let i = 0; i < buffer.numberOfChannels; i++) channels.push(buffer.getChannelData(i));
+
+    while (offset < buffer.length) {
+        for (let i = 0; i < numOfChan; i++) {
+            sample = Math.max(-1, Math.min(1, channels[i][offset]));
+            sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0;
+            out.setInt16(pos, sample, true);
+            pos += 2;
+        }
+        offset++;
+    }
+
+    return new Blob([out.buffer], { type: "audio/wav" });
+}
+
+function exportSoundProfile() {
+    const profile = {
+        app: "Matheesha 3D Audio Player",
+        version: "2.0",
+        timestamp: new Date().toISOString(),
+        eqGains: eqFilters.map(f => f.gain.value),
+        spatial: {
+            orbitSpeed,
+            orbitRadius,
+            reverbPercent,
+            currentX,
+            currentY,
+            currentZ,
+            reverbRoom: currentReverbRoom
+        },
+        surround: {
+            preset: surroundPreset,
+            widthScale: surroundWidthScale,
+            subGain: surroundSubGain,
+            centerGain: surroundCenterGain
+        }
+    };
+
+    const jsonStr = JSON.stringify(profile, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Matheesha_Sound_Profile_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function importSoundProfile(jsonObj) {
+    try {
+        if (jsonObj.eqGains && Array.isArray(jsonObj.eqGains)) {
+            jsonObj.eqGains.forEach((g, i) => {
+                const slider = document.getElementById(`eq-band-${i}`);
+                if (slider) slider.value = g;
+            });
+            if (audioCtx) applyEQSettings();
+        }
+        if (jsonObj.spatial) {
+            if (jsonObj.spatial.orbitSpeed) {
+                orbitSpeed = jsonObj.spatial.orbitSpeed;
+                const sl = document.getElementById("slider-orbit-speed");
+                if (sl) sl.value = orbitSpeed;
+                const val = document.getElementById("val-orbit-speed");
+                if (val) val.textContent = orbitSpeed + "Hz";
+            }
+            if (jsonObj.spatial.reverbRoom) {
+                const sel = document.getElementById("select-reverb-room");
+                if (sel) sel.value = jsonObj.spatial.reverbRoom;
+                updateConvolverRoom(jsonObj.spatial.reverbRoom);
+            }
+        }
+        alert("Sound profile loaded successfully!");
+    } catch (e) {
+        alert("Failed to import profile: Invalid JSON format.");
+    }
+}
+
+// --- Hyper-Immersion Experience (Live Inside the Song) ---
+let isHyperImmersionActive = false;
+
+function toggleHyperImmersion() {
+    isHyperImmersionActive = !isHyperImmersionActive;
+    
+    const btn = document.getElementById("btn-toggle-immersion");
+    const toggle8d = document.getElementById("toggle-8d");
+    const toggleSurround = document.getElementById("toggle-surround");
+    const elSelectReverbRoom = document.getElementById("select-reverb-room");
+    
+    if (isHyperImmersionActive) {
+        initAudioEngine();
+        
+        // 1. Enable smooth 8D Orbit (Speed: 0.8Hz for floating immersion)
+        is8DEnabled = true;
+        orbitSpeed = 0.8;
+        orbitRadius = 85;
+        reverbPercent = 40;
+        if (toggle8d) toggle8d.checked = true;
+        
+        const sliderSpeed = document.getElementById("slider-orbit-speed");
+        if (sliderSpeed) sliderSpeed.value = 0.8;
+        const valSpeed = document.getElementById("val-orbit-speed");
+        if (valSpeed) valSpeed.textContent = "0.8Hz";
+        
+        const sliderReverb = document.getElementById("slider-reverb");
+        if (sliderReverb) sliderReverb.value = 40;
+        const valReverb = document.getElementById("val-reverb");
+        if (valReverb) valReverb.textContent = "40%";
+
+        // 2. Enable 360° Spherical 5.1 Surround & Haas Width
+        isSurroundMode = true;
+        surroundPreset = "360";
+        surroundWidthScale = 1.3;
+        surroundSubGain = 1.4;
+        surroundDelayMs = 24;
+        surroundCenterGain = 1.1;
+        if (toggleSurround) toggleSurround.checked = true;
+        initSurroundNodes();
+        
+        // 3. Enable Concert / Cathedral Room Acoustics
+        updateConvolverRoom("concert");
+        if (elSelectReverbRoom) elSelectReverbRoom.value = "concert";
+        
+        // 4. Apply Warm Sub-bass Boost Equalizer Preset
+        applyPreset("bassboost");
+        
+        // 5. Start Orbit Animation
+        lastFrameTime = performance.now();
+        requestAnimationFrame(processOrbitEffect);
+        
+        // 6. Switch Visualizer to 3D Cyber Sphere automatically
+        const visSphereBtn = document.querySelector('.vis-mode-btn[data-vismode="sphere"]');
+        if (visSphereBtn) visSphereBtn.click();
+        
+        // 7. Update UI button
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-headset"></i> Live Inside Song: ON';
+            btn.style.background = "linear-gradient(135deg, #00ffaa, #00f3ff)";
+            btn.style.color = "#000000";
+            btn.style.boxShadow = "0 0 20px rgba(0, 255, 170, 0.8)";
+        }
+    } else {
+        // Disable Hyper-Immersion
+        is8DEnabled = false;
+        isSurroundMode = false;
+        if (toggle8d) toggle8d.checked = false;
+        if (toggleSurround) toggleSurround.checked = false;
+        
+        updateConvolverRoom("none");
+        if (elSelectReverbRoom) elSelectReverbRoom.value = "none";
+        applyPreset("flat");
+        updateSpatialPosition(0, 0, 0);
+        
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-headset"></i> Live Inside Song: OFF';
+            btn.style.background = "linear-gradient(135deg, #00f3ff, #8000ff)";
+            btn.style.color = "#ffffff";
+            btn.style.boxShadow = "0 0 12px rgba(0, 243, 255, 0.4)";
+        }
+    }
 }
 
 // --- Effects Sub-Tab Navigation ---
@@ -2588,8 +3618,20 @@ function setupSpatialModeButtons() {
 function setupMobileNavigation() {
     const tabs = document.querySelectorAll(".nav-tab");
     
-    // Set default tab on mobile
-    document.body.classList.add("tab-player");
+    function checkViewport() {
+        if (window.innerWidth <= 1024) {
+            if (!document.body.classList.contains("tab-player") &&
+                !document.body.classList.contains("tab-library") &&
+                !document.body.classList.contains("tab-effects")) {
+                document.body.classList.add("tab-player");
+            }
+        } else {
+            document.body.classList.remove("tab-player", "tab-library", "tab-effects");
+        }
+    }
+    
+    checkViewport();
+    window.addEventListener("resize", checkViewport);
     
     tabs.forEach(tab => {
         tab.addEventListener("click", () => {
