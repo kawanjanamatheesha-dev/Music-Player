@@ -9,7 +9,15 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-const FILES_TO_UPLOAD = ['index.html', 'styles.css', 'app.js', 'manifest.json', 'sw.js'];
+const FILES_TO_UPLOAD = [
+    'index.html', 
+    'styles.css', 
+    'app.js', 
+    'manifest.json', 
+    'sw.js',
+    'assets/index-BrAdsyH_.js',
+    'assets/index-FPwgbN-z.css'
+];
 const DEFAULT_REPO_NAME = '3d-8d-music-player';
 
 const rl = readline.createInterface({
