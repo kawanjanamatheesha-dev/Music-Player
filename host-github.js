@@ -15,6 +15,7 @@ const FILES_TO_UPLOAD = [
     'app.js', 
     'manifest.json', 
     'sw.js',
+    'bmw_bg.jpg',
     'assets/index-BrAdsyH_.js',
     'assets/index-FPwgbN-z.css'
 ];
